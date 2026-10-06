@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Analisa Pasar | {% if selected_instrument %}{{ selected_instrument.symbol }} - {{ selected_instrument.name }}{% else %}Multi-Pasar{% endif %}</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { 
+            background-color: #0b0f19; 
+            color: #f1f5f9; 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        }
+        .card { 
+            background-color: #161e2e; 
+            border: 1px solid #273548; 
+            border-radius: 12px; 
+            color: #f1f5f9;
+        }
+        .table { color: #f1f5f9; }
+        .table-hover tbody tr:hover { background-color: #1e293b; color: #ffffff; }
+        .table th { font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px; background-color: #111827 !important; color: #94a3b8; border-bottom: 1px solid #273548; }
+        .table td { border-color: #273548; vertical-align: middle; }
+        .extra-small { font-size: 0.75rem; }
+        
+        /* Badge & Hero Styling */
+        .badge-prediction-up { background: linear-gradient(135deg, #059669, #10b981); color: #fff; }
+        .badge-prediction-down { background: linear-gradient(135deg, #dc2626, #f87171); color: #fff; }
+        .hero-pred-up { background: linear-gradient(135deg, #064e3b, #065f46); color: #ecfdf5; border-radius: 14px; border: 1px solid #047857; }
+        .hero-pred-down { background: linear-gradient(135deg, #7f1d1d, #991b1b); color: #fef2f2; border-radius: 14px; border: 1px solid #b91c1c; }
+        .hero-pred-neutral { background: linear-gradient(135deg, #78350f, #92400e); color: #fef3c7; border-radius: 14px; border: 1px solid #b45309; }
+        
+        .quick-pill { font-size: 0.82rem; padding: 0.35rem 0.85rem; border-radius: 20px; text-decoration: none; transition: all 0.2s; }
+        .quick-pill:hover { transform: translateY(-1px); opacity: 0.9; }
+        
+        .candle-green { color: #34d399; font-weight: 600; }
+        .candle-red { color: #f87171; font-weight: 600; }
+        
+        .form-select, .form-control { background-color: #0b0f19; border-color: #334155; color: #f1f5f9; }
+        .form-select:focus, .form-control:focus { background-color: #0b0f19; border-color: #3b82f6; color: #f1f5f9; box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25); }
+    </style>
+</head>
+<body>
+    <div class="container-fluid px-4 py-4">
+        <!-- Notifikasi Sinyal Sync -->
+        {% if is_synced %}
+        <div class="alert alert-success alert-dismissible fade show shadow-sm mb-4 border-0 bg-success bg-opacity-25 text-success" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">🚀</span>
+                <div>
+                    <strong>Data Berhasil Disinkronkan!</strong> Sistem telah memperbarui candle dan menganalisa pergerakan timeframe <strong>{{ active_tf }}</strong>{% if selected_instrument %} untuk instrumen <strong>{{ selected_instrument.symbol }}</strong>{% endif %}.
+                </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        {% if search_error %}
+        <div class="alert alert-warning alert-dismissible fade show shadow-sm mb-4 border-0 bg-warning bg-opacity-25 text-warning" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">⚠️</span>
+                <div>{{ search_error }} Menampilkan seluruh instrumen pasar yang tersedia.</div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        <!-- Header Utama -->
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3 border-bottom border-secondary pb-3">
+            <div>
+                <h3 class="fw-bold text-light mb-1">
+                    📈 Terminal Analisa & Prediksi Pasar Kuantitatif
+                </h3>
+                <p class="text-muted small mb-0">
+                    Sistem Prediksi Multi-Indikator, Price Action, & Multi-Timeframe Confluence (Model Research Validated: BTC-USD PF 1.52)
+                </p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                {% if selected_instrument %}
+                <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-warning btn-sm fw-semibold shadow-sm text-dark" title="Tarik data instan Yahoo Finance untuk instrumen ini">
+                    ⚡ Tarik Data {{ selected_instrument.symbol }} (1s)
+                </a>
+                <a href="{% url 'trading_dashboard:export_csv' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-success btn-sm fw-semibold shadow-sm">
+                    📥 Unduh CSV {{ selected_instrument.symbol }}
+                </a>
+                <a href="?tf={{ active_tf }}" class="btn btn-outline-light btn-sm fw-semibold shadow-sm">
+                    🌍 Semua Pasar
+                </a>
+                {% else %}
+                <a href="{% url 'trading_dashboard:sync_data' %}?tf={{ active_tf }}" class="btn btn-warning btn-sm fw-semibold shadow-sm text-dark" title="Tarik data instan dari Yahoo Finance untuk timeframe aktif">
+                    🔄 Tarik Semua Data ({{ active_tf }})
+                </a>
+                <a href="{% url 'trading_dashboard:export_csv' %}?tf={{ active_tf }}{% if active_category %}&category={{ active_category }}{% endif %}" class="btn btn-success btn-sm fw-semibold shadow-sm">
+                    📥 Unduh CSV
+                </a>
+                <a href="/admin/" class="btn btn-outline-primary btn-sm fw-semibold shadow-sm" target="_blank">
+                    ⚙️ Admin
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- PANEL NAVIGASI: PILIH PASAR & TIMEFRAME                   -->
+        <!-- ======================================================== -->
+        <div class="card shadow-sm p-3 mb-4">
+            <div class="row g-3 align-items-center">
+                <!-- Dropdown Pemilih 1 Pasar Tertentu -->
+                <div class="col-lg-5 col-md-12">
+                    <form method="get" action="" class="d-flex align-items-center gap-2">
+                        <input type="hidden" name="tf" value="{{ active_tf }}">
+                        <label for="marketSelect" class="form-label mb-0 fw-bold text-light small text-nowrap">
+                            🎯 Pilih 1 Pasar:
+                        </label>
+                        <select name="symbol" id="marketSelect" class="form-select form-select-sm fw-semibold" onchange="this.form.submit()">
+                            <option value="all" {% if not selected_instrument %}selected{% endif %}>🌍 Semua Pasar (Tampilan Ringkasan Global)</option>
+                            {% for cat_name, inst_list in grouped_instruments.items %}
+                            <optgroup label="📂 {{ cat_name }}">
+                                {% for inst in inst_list %}
+                                <option value="{{ inst.symbol }}" {% if current_symbol == inst.symbol %}selected{% endif %}>
+                                    {{ inst.symbol }} - {{ inst.name }}
+                                </option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                        <noscript><button type="submit" class="btn btn-primary btn-sm">Buka</button></noscript>
+                    </form>
+                </div>
+
+                <!-- Pemilih Kerangka Waktu (Timeframe) -->
+                <div class="col-lg-7 col-md-12">
+                    <div class="d-flex flex-wrap justify-content-lg-end align-items-center gap-2">
+                        <span class="small fw-bold text-light">🕒 Timeframe:</span>
+                        {% for code, label in timeframes %}
+                        <a href="?{% if selected_instrument %}symbol={{ selected_instrument.symbol }}&{% elif active_category %}category={{ active_category }}&{% endif %}tf={{ code }}" 
+                           class="btn btn-sm {% if active_tf == code %}btn-primary px-3 fw-bold{% else %}btn-outline-secondary text-light{% endif %} position-relative">
+                            {{ label }}
+                            {% if code == '1m' or code == '5m' %}
+                            <span class="badge bg-danger position-absolute top-0 start-100 translate-middle p-1 rounded-circle" title="Rekomendasi Scalping"></span>
+                            {% endif %}
+                        </a>
+                        {% endfor %}
+
+                        <div class="form-check form-switch small text-light ms-2">
+                            <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked>
+                            <label class="form-check-label fw-semibold" for="autoRefreshToggle" id="refreshLabel">Auto-Refresh</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pintasan Cepat Pasar Populer (Quick Pills) -->
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-3 pt-2 border-top border-secondary">
+                <span class="extra-small fw-bold text-muted text-uppercase me-1">Pintasan Cepat:</span>
+                <a href="?tf={{ active_tf }}" class="quick-pill {% if not selected_instrument %}bg-primary text-white fw-bold{% else %}bg-dark text-light border border-secondary{% endif %}">
+                    🌍 Semua Pasar
+                </a>
+                {% for sym, label, cat in popular_symbols %}
+                <a href="?symbol={{ sym }}&tf={{ active_tf }}" 
+                   class="quick-pill {% if current_symbol == sym %}bg-primary text-white fw-bold shadow-sm{% else %}bg-dark text-light border border-secondary{% endif %}">
+                    {{ label }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- TAMPILAN 1: JIKA 1 PASAR DIPILIH                          -->
+        <!-- ======================================================== -->
+        {% if selected_instrument %}
+            {% if not prediction_data.has_enough_data %}
+            <!-- Alert jika data candle di DB belum cukup -->
+            <div class="card shadow-sm p-5 text-center mb-4">
+                <div class="py-3">
+                    <div class="fs-1 mb-3">📊</div>
+                    <h4 class="fw-bold text-light mb-2">Riwayat Candle untuk {{ selected_instrument.name }} ({{ selected_instrument.symbol }}) Belum Lengkap</h4>
+                    <p class="text-muted mb-3">
+                        Tersedia <strong>{{ prediction_data.rows_count|default:"0" }}</strong> candle untuk kerangka waktu <strong>{{ active_tf }}</strong> di database lokal. Diperlukan minimal 15 candle untuk mengaktifkan indikator teknikal (EMA, RSI, MACD) dan mesin prediksi.
+                    </p>
+                    <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-primary px-4 py-2 fw-bold shadow-sm">
+                        ⚡ Tarik Data {{ active_tf }} untuk {{ selected_instrument.symbol }} Sekarang (Cepat)
+                    </a>
+                </div>
+            </div>
+            {% else %}
+            <!-- KARTU HERO PREDIKSI PERGERAKAN -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card shadow-sm p-4 {% if prediction_data.prediction.direction == 'NAIK' %}hero-pred-up{% elif prediction_data.prediction.direction == 'TURUN' %}hero-pred-down{% else %}hero-pred-neutral{% endif %}">
+                        <div class="row align-items-center gy-3">
+                            <div class="col-lg-7 col-md-12">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="badge bg-dark text-light fw-bold px-3 py-1 border border-secondary">
+                                        {{ selected_instrument.get_market_category_display }}
+                                    </span>
+                                    <span class="badge bg-black bg-opacity-25 px-3 py-1">
+                                        Timeframe: {{ active_tf }} (1 Bar Lilin)
+                                    </span>
+                                    <span class="badge bg-white bg-opacity-25 px-3 py-1 text-dark fw-bold">
+                                        Keyakinan: {{ prediction_data.prediction.confidence }}
+                                    </span>
+                                </div>
+                                <h1 class="fw-black mb-1 display-6">
+                                    {{ selected_instrument.symbol }}
+                                    <span class="fs-5 fw-normal opacity-75">({{ selected_instrument.name }})</span>
+                                </h1>
+                                <div class="fs-3 fw-bold mt-2">
+                                    {% if prediction_data.prediction.direction == 'NAIK' %}
+                                        🚀 PREDIKSI {{ active_tf|upper }} KE DEPAN: <span class="text-warning">NAIK (BULLISH)</span>
+                                    {% elif prediction_data.prediction.direction == 'TURUN' %}
+                                        🩸 PREDIKSI {{ active_tf|upper }} KE DEPAN: <span class="text-warning">TURUN (BEARISH)</span>
+                                    {% else %}
+                                        🟡 PREDIKSI {{ active_tf|upper }} KE DEPAN: <span>KONSOLIDASI / WAIT</span>
+                                    {% endif %}
+                                </div>
+                                <p class="mb-0 mt-2 opacity-90 fs-6">
+                                    Sinyal Rekomendasi: <strong>{{ prediction_data.prediction.signal }}</strong> | 
+                                    Pola Lilin: <strong>{{ prediction_data.prediction.pattern_name }}</strong>
+                                </p>
+                            </div>
+
+                            <div class="col-lg-5 col-md-12">
+                                <div class="bg-black bg-opacity-30 p-3 rounded-3 text-center border border-secondary">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="small fw-bold">PELUANG NAIK: {{ prediction_data.prediction.prob_up }}%</span>
+                                        <span class="small fw-bold">PELUANG TURUN: {{ prediction_data.prediction.prob_down }}%</span>
+                                    </div>
+                                    <div class="progress bg-dark" style="height: 18px; border-radius: 9px;">
+                                        <div class="progress-bar bg-success fw-bold" role="progressbar" style="width: {{ prediction_data.prediction.prob_up }}%;" aria-valuenow="{{ prediction_data.prediction.prob_up }}" aria-valuemin="0" aria-valuemax="100">
+                                            {{ prediction_data.prediction.prob_up }}%
+                                        </div>
+                                        <div class="progress-bar bg-danger fw-bold" role="progressbar" style="width: {{ prediction_data.prediction.prob_down }}%;" aria-valuenow="{{ prediction_data.prediction.prob_down }}" aria-valuemin="0" aria-valuemax="100">
+                                            {{ prediction_data.prediction.prob_down }}%
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3 text-start small">
+                                        <div class="col-6">
+                                            <div class="opacity-75">Harga Terakhir:</div>
+                                            <div class="fs-5 fw-bold">{{ prediction_data.latest.close }}</div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="opacity-75">Perubahan Lilin:</div>
+                                            <div class="fs-5 fw-bold {% if prediction_data.latest.is_positive %}text-success{% else %}text-danger{% endif %}">
+                                                {% if prediction_data.latest.is_positive %}+{% endif %}{{ prediction_data.latest.change_val }} ({{ prediction_data.latest.change_pct }}%)
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- REKOMENDASI SCALPER & ESTIMASI TARGET PROYEKSI HARGA -->
+            <div class="row mb-4">
+                <div class="col-lg-7 col-md-12">
+                    <div class="card shadow-sm p-4 h-100">
+                        <h6 class="fw-bold text-light mb-3">
+                            💡 Rekomendasi Tindakan Scalper ({{ active_tf|upper }})
+                        </h6>
+                        <div class="p-3 bg-dark rounded-3 border-start border-4 {% if prediction_data.prediction.direction == 'NAIK' %}border-success{% elif prediction_data.prediction.direction == 'TURUN' %}border-danger{% else %}border-warning{% endif %} mb-3">
+                            <p class="mb-0 fw-semibold text-light">
+                                {{ prediction_data.prediction.recommendation }}
+                            </p>
+                        </div>
+                        <h6 class="fw-bold text-muted small text-uppercase mb-2">Faktor Analisis Sinyal:</h6>
+                        <ul class="list-unstyled mb-0 small">
+                            {% for reason in prediction_data.prediction.reasons %}
+                            <li class="mb-1 text-light">
+                                <span class="text-primary me-1">•</span> {{ reason }}
+                            </li>
+                            {% empty %}
+                            <li class="text-muted">Data indikator stabil.</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-lg-5 col-md-12">
+                    <div class="card shadow-sm p-4 h-100">
+                        <h6 class="fw-bold text-light mb-3">
+                            🎯 Proyeksi Target & Batas Risiko (ATR 14)
+                        </h6>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <div class="border border-secondary rounded p-2 text-center bg-success bg-opacity-10">
+                                    <div class="extra-small text-muted fw-bold">PROYEKSI TARGET NAIK (TP)</div>
+                                    <div class="fs-5 fw-bold text-success">{{ prediction_data.prediction.target_up }}</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="border border-secondary rounded p-2 text-center bg-danger bg-opacity-10">
+                                    <div class="extra-small text-muted fw-bold">PROYEKSI TARGET TURUN (SL)</div>
+                                    <div class="fs-5 fw-bold text-danger">{{ prediction_data.prediction.target_down }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="small text-muted border-top border-secondary pt-2">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-light">Volatilitas Candle (ATR 14):</span>
+                                <span class="fw-bold text-light">{{ prediction_data.indicators.atr_14 }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-light">Saran Stop Loss Posisi Beli:</span>
+                                <span class="fw-semibold text-danger">{{ prediction_data.prediction.stop_loss_buy }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-light">Waktu Lilin Terakhir:</span>
+                                <span class="fw-semibold text-light">{{ prediction_data.latest.timestamp|date:"d M Y H:i:s" }} WIB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MATRIKS 4 PILAR INDIKATOR TEKNIKAL -->
+            <div class="row mb-4">
+                <div class="col-md-3 col-sm-6 mb-3">
+                    <div class="card shadow-sm p-3 h-100 text-center">
+                        <span class="text-muted extra-small fw-bold text-uppercase">PILAR 1: TREND EMA 9 / 21</span>
+                        <div class="my-2">
+                            {% if prediction_data.indicators.ema_9 > prediction_data.indicators.ema_21 %}
+                            <span class="badge bg-success bg-opacity-25 text-success fs-6 fw-bold px-3 py-2 rounded-pill">
+                                🟢 Golden Cross (Bullish)
+                            </span>
+                            {% else %}
+                            <span class="badge bg-danger bg-opacity-25 text-danger fs-6 fw-bold px-3 py-2 rounded-pill">
+                                🔴 Death Cross (Bearish)
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="extra-small text-muted">
+                            EMA 9: <strong class="text-light">{{ prediction_data.indicators.ema_9 }}</strong><br>
+                            EMA 21: <strong class="text-light">{{ prediction_data.indicators.ema_21 }}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3 col-sm-6 mb-3">
+                    <div class="card shadow-sm p-3 h-100 text-center">
+                        <span class="text-muted extra-small fw-bold text-uppercase">PILAR 2: RSI 14 & STOCH</span>
+                        <div class="my-2">
+                            <span class="badge bg-primary bg-opacity-25 text-primary fs-6 fw-bold px-3 py-2 rounded-pill">
+                                RSI: {{ prediction_data.indicators.rsi_14|default:"-" }}
+                            </span>
+                        </div>
+                        <div class="extra-small text-muted">
+                            Status: <span class="{{ prediction_data.indicators.rsi_badge }}">{{ prediction_data.indicators.rsi_status }}</span><br>
+                            Stoch %K: <strong class="text-light">{{ prediction_data.indicators.stoch_k|default:"-" }}</strong> | %D: <strong class="text-light">{{ prediction_data.indicators.stoch_d|default:"-" }}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3 col-sm-6 mb-3">
+                    <div class="card shadow-sm p-3 h-100 text-center">
+                        <span class="text-muted extra-small fw-bold text-uppercase">PILAR 3: MULTI-TIMEFRAME</span>
+                        <div class="my-2">
+                            {% if prediction_data.multi_timeframe.mtf_m5.bias == 'BULLISH' and prediction_data.multi_timeframe.mtf_m15.bias == 'BULLISH' %}
+                            <span class="badge bg-success bg-opacity-25 text-success fs-6 fw-bold px-3 py-2 rounded-pill">
+                                Selaras Bullish (M15+M5)
+                            </span>
+                            {% elif prediction_data.multi_timeframe.mtf_m5.bias == 'BEARISH' and prediction_data.multi_timeframe.mtf_m15.bias == 'BEARISH' %}
+                            <span class="badge bg-danger bg-opacity-25 text-danger fs-6 fw-bold px-3 py-2 rounded-pill">
+                                Selaras Bearish (M15+M5)
+                            </span>
+                            {% else %}
+                            <span class="badge bg-warning bg-opacity-25 text-warning fs-6 fw-bold px-3 py-2 rounded-pill">
+                                Campuran / Hati-hati
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="extra-small text-muted">
+                            M15: <strong class="text-light">{{ prediction_data.multi_timeframe.mtf_m15.bias|default:"N/A" }}</strong> | 
+                            M5: <strong class="text-light">{{ prediction_data.multi_timeframe.mtf_m5.bias|default:"N/A" }}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3 col-sm-6 mb-3">
+                    <div class="card shadow-sm p-3 h-100 text-center">
+                        <span class="text-muted extra-small fw-bold text-uppercase">PILAR 4: MACD & MOMENTUM</span>
+                        <div class="my-2">
+                            {% if prediction_data.indicators.macd_hist is not None and prediction_data.indicators.macd_hist > 0 %}
+                            <span class="badge bg-success bg-opacity-25 text-success fs-6 fw-bold px-3 py-2 rounded-pill">
+                                Momentum Beli Positif
+                            </span>
+                            {% elif prediction_data.indicators.macd_hist is not None and prediction_data.indicators.macd_hist < 0 %}
+                            <span class="badge bg-danger bg-opacity-25 text-danger fs-6 fw-bold px-3 py-2 rounded-pill">
+                                Tekanan Jual Aktif
+                            </span>
+                            {% else %}
+                            <span class="badge bg-secondary bg-opacity-25 text-secondary fs-6 fw-bold px-3 py-2 rounded-pill">
+                                MACD Netral
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="extra-small text-muted">
+                            MACD: <strong class="text-light">{{ prediction_data.indicators.macd|default:"-" }}</strong><br>
+                            Hist: <strong class="text-light">{{ prediction_data.indicators.macd_hist|default:"-" }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TABEL RIWAYAT 15 LILIN TERAKHIR -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark py-3 d-flex justify-content-between align-items-center border-bottom border-secondary">
+                    <h6 class="fw-bold text-light mb-0">
+                        🕯️ Riwayat 15 Bar Lilin Terakhir ({{ selected_instrument.symbol }} - {{ active_tf }})
+                    </h6>
+                    <span class="text-muted small">Diurutkan dari candle terbaru ke terlama</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 text-center">
+                            <thead>
+                                <tr>
+                                    <th>Waktu (WIB)</th>
+                                    <th>Arah Lilin</th>
+                                    <th>Open (Buka)</th>
+                                    <th>High (Tertinggi)</th>
+                                    <th>Low (Terendah)</th>
+                                    <th>Close (Tutup)</th>
+                                    <th>Perubahan (Delta)</th>
+                                    <th>Volume</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for c in prediction_data.recent_candles %}
+                                <tr>
+                                    <td class="text-muted small fw-medium">
+                                        {{ c.timestamp|date:"d M Y" }}<br>
+                                        <strong class="text-light">{{ c.timestamp|date:"H:i:s" }} WIB</strong>
+                                    </td>
+                                    <td>
+                                        {% if c.color == 'HIJAU' %}
+                                        <span class="badge bg-success bg-opacity-25 text-success fw-bold px-2 py-1">▲ HIJAU (NAIK)</span>
+                                        {% else %}
+                                        <span class="badge bg-danger bg-opacity-25 text-danger fw-bold px-2 py-1">▼ MERAH (TURUN)</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-muted fw-semibold">{{ c.open }}</td>
+                                    <td class="text-success fw-semibold">{{ c.high }}</td>
+                                    <td class="text-danger fw-semibold">{{ c.low }}</td>
+                                    <td class="fw-bold fs-6 text-light bg-dark bg-opacity-50">{{ c.close }}</td>
+                                    <td class="{% if c.color == 'HIJAU' %}candle-green{% else %}candle-red{% endif %}">
+                                        {% if c.change > 0 %}+{% endif %}{{ c.change }} ({{ c.change_pct }}%)
+                                    </td>
+                                    <td class="text-muted small">{{ c.volume }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center py-4 text-muted">Belum ada baris candle yang tersimpan.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        {% else %}
+        <!-- ======================================================== -->
+        <!-- TAMPILAN 2: JIKA "SEMUA PASAR" DIPILIH (GLOBAL)          -->
+        <!-- ======================================================== -->
+
+        <!-- Filter Tab Kategori Pasar -->
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <a href="?tf={{ active_tf }}" class="btn btn-sm {% if not active_category %}btn-light fw-bold text-dark{% else %}btn-outline-secondary text-light{% endif %}">
+                Semua Kategori
+            </a>
+            <a href="?category=FOREX&tf={{ active_tf }}" class="btn btn-sm {% if active_category == 'FOREX' %}btn-primary fw-bold text-white{% else %}btn-outline-primary{% endif %}">
+                💱 Forex
+            </a>
+            <a href="?category=CRYPTO&tf={{ active_tf }}" class="btn btn-sm {% if active_category == 'CRYPTO' %}btn-warning text-dark fw-bold{% else %}btn-outline-warning{% endif %}">
+                🪙 Cryptocurrency
+            </a>
+            <a href="?category=STOCK&tf={{ active_tf }}" class="btn btn-sm {% if active_category == 'STOCK' %}btn-success fw-bold text-white{% else %}btn-outline-success{% endif %}">
+                📈 Saham (IDX & Global)
+            </a>
+            <a href="?category=COMMODITY&tf={{ active_tf }}" class="btn btn-sm {% if active_category == 'COMMODITY' %}btn-danger fw-bold text-white{% else %}btn-outline-danger{% endif %}">
+                🛢️ Komoditas (Emas/Minyak)
+            </a>
+        </div>
+
+        <!-- Panel Ringkasan Indikator Pasar Global -->
+        <div class="row mb-4">
+            <div class="col-md-4 mb-2">
+                <div class="card shadow-sm text-center p-3 h-100">
+                    <span class="text-muted small fw-semibold">INDIKATOR TEKNIKAL GLOBAL</span>
+                    <div class="my-3">
+                        <span class="badge {{ summary.tech_badge_class }} px-4 py-2 fs-6 fw-bold rounded-pill">{{ summary.tech_status }}</span>
+                    </div>
+                    <p class="text-muted extra-small mb-0">Berdasarkan Kalkulasi Multi-Aset</p>
+                </div>
+            </div>
+
+            <div class="col-md-4 mb-2">
+                <div class="card shadow-sm text-center p-3 h-100 border border-secondary">
+                    <span class="text-muted small fw-semibold">RINGKASAN PASAR (SENTIMEN UTAMA)</span>
+                    <div class="my-2">
+                        <span class="badge {{ summary.market_badge_class }} px-4 py-2 fs-5 fw-bold rounded-pill shadow-sm">{{ summary.market_sentiment }}</span>
+                    </div>
+                    <p class="text-muted extra-small mb-0">Kerangka Waktu Aktif: {{ active_tf }}</p>
+                </div>
+            </div>
+
+            <div class="col-md-4 mb-2">
+                <div class="card shadow-sm text-center p-3 h-100">
+                    <span class="text-muted small fw-semibold">RATA-RATA BERGERAK (MOVING AVERAGES)</span>
+                    <div class="my-3">
+                        <span class="badge {{ summary.ma_badge_class }} px-4 py-2 fs-6 fw-bold rounded-pill">{{ summary.ma_status }}</span>
+                    </div>
+                    <p class="text-muted extra-small mb-0">Berdasarkan Perpotongan MA / EMA</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabel Data Seluruh Instrumen Pasar -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-dark py-3 d-flex justify-content-between align-items-center border-bottom border-secondary">
+                <h6 class="fw-bold text-light mb-0">
+                    📋 Ringkasan Pasar & Prediksi 1 Menit / {{ active_tf }}
+                </h6>
+                <span class="badge bg-secondary">Total: {{ data|length }} Instrumen Teranalisa</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead>
+                            <tr>
+                                <th class="text-start ps-3">Instrumen</th>
+                                <th>Harga Terakhir</th>
+                                <th>Perubahan</th>
+                                <th>EMA 9 / 21</th>
+                                <th>RSI 14</th>
+                                <th>MACD</th>
+                                <th>Prediksi {{ active_tf|upper }}</th>
+                                <th>Sinyal</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in data %}
+                            <tr>
+                                <td class="text-start ps-3">
+                                    <a href="?symbol={{ item.symbol }}&tf={{ active_tf }}" class="fw-bold text-decoration-none text-info fs-6">
+                                        {{ item.symbol }}
+                                    </a><br>
+                                    <span class="text-muted small">{{ item.name }}</span>
+                                    <span class="badge bg-secondary ms-1" style="font-size: 0.65rem;">{{ item.category }}</span>
+                                </td>
+                                <td class="fw-bold fs-6 text-light bg-dark bg-opacity-50">{{ item.close|default:"-" }}</td>
+                                <td class="{% if item.change_val >= 0 %}candle-green{% else %}candle-red{% endif %}">
+                                    {% if item.change_val >= 0 %}+{% endif %}{{ item.change_val|default:"-" }}<br>
+                                    <small>({{ item.change_pct|default:"0" }}%)</small>
+                                </td>
+                                <td>
+                                    <span class="text-muted small">E9:</span> <span class="fw-semibold text-light">{{ item.ema_9|default:"-" }}</span><br>
+                                    <span class="text-muted small">E21:</span> <span class="fw-semibold text-light">{{ item.ema_21|default:"-" }}</span>
+                                </td>
+                                <td>
+                                    {% if item.rsi_14 is not None %}
+                                    <span class="{% if item.rsi_14 > 70 %}text-danger{% elif item.rsi_14 < 30 %}text-success{% else %}text-muted{% endif %} fw-bold">
+                                        {{ item.rsi_14 }}
+                                    </span>
+                                    {% else %}
+                                    <span class="text-muted small">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.macd is not None %}
+                                    <span class="{% if item.macd > 0 %}text-success{% elif item.macd < 0 %}text-danger{% else %}text-muted{% endif %} fw-semibold">
+                                        {{ item.macd }}
+                                    </span>
+                                    {% else %}
+                                    <span class="text-muted small">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.prediction_direction == 'NAIK' %}
+                                        <span class="badge badge-prediction-up text-white px-2 py-1 rounded-pill shadow-sm">
+                                            ▲ NAIK ({{ item.prob_up }}%)
+                                        </span>
+                                    {% elif item.prediction_direction == 'TURUN' %}
+                                        <span class="badge badge-prediction-down text-white px-2 py-1 rounded-pill shadow-sm">
+                                            ▼ TURUN ({{ item.prob_down }}%)
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark px-2 py-1 rounded-pill">
+                                            ◆ KONSOLIDASI
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.signal == 'STRONG BUY' %}
+                                        <span class="badge bg-success px-2 py-1 rounded-pill">🚀 BELI KUAT</span>
+                                    {% elif item.signal == 'BUY' %}
+                                        <span class="badge bg-success bg-opacity-75 px-2 py-1 rounded-pill">🟢 BELI</span>
+                                    {% elif item.signal == 'STRONG SELL' %}
+                                        <span class="badge bg-danger px-2 py-1 rounded-pill">🩸 JUAL KUAT</span>
+                                    {% elif item.signal == 'SELL' %}
+                                        <span class="badge bg-danger bg-opacity-75 px-2 py-1 rounded-pill">🔴 JUAL</span>
+                                    {% elif item.signal == 'WAIT' %}
+                                        <span class="badge bg-info text-dark px-2 py-1 rounded-pill">⏳ TUNGGU</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary px-2 py-1 rounded-pill">🟡 TAHAN</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="?symbol={{ item.symbol }}&tf={{ active_tf }}" class="btn btn-outline-info btn-sm fw-semibold shadow-sm" title="Lihat Prediksi & Analisa Detail 1 Menit">
+                                        🎯 Analisa {{ item.symbol }}
+                                    </a>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="9" class="text-center py-5">
+                                    <div class="py-4">
+                                        <div class="fs-1 mb-2">📊</div>
+                                        <h5 class="fw-bold text-light mb-2">Belum ada data riwayat untuk kerangka waktu '{{ active_tf }}'</h5>
+                                        <p class="text-muted small mb-4">
+                                            Data pasar untuk kerangka waktu ini belum terunduh di database lokal Anda.
+                                        </p>
+                                        <a href="{% url 'trading_dashboard:sync_data' %}?tf={{ active_tf }}" class="btn btn-primary px-4 py-2 fw-bold shadow-sm">
+                                            ⚡ Tarik Semua Data '{{ active_tf }}' Sekarang
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Logika Auto-Refresh Cerdas untuk timeframe intraday (1m, 5m)
+        (function() {
+            const activeTf = "{{ active_tf }}";
+            let refreshIntervalSec = 300; // default 5 menit
+
+            if (activeTf === '1m') {
+                refreshIntervalSec = 20; // 20 detik untuk 1 menit
+            } else if (activeTf === '5m') {
+                refreshIntervalSec = 60; // 60 detik untuk 5 menit
+            } else if (activeTf === '15m' || activeTf === '30m') {
+                refreshIntervalSec = 120;
+            }
+
+            const toggle = document.getElementById('autoRefreshToggle');
+            const label = document.getElementById('refreshLabel');
+            let countdown = refreshIntervalSec;
+            let timer = null;
+
+            function updateLabel() {
+                if (toggle && label) {
+                    if (toggle.checked) {
+                        label.textContent = `Auto-Refresh (${countdown}s)`;
+                    } else {
+                        label.textContent = `Auto-Refresh Nonaktif`;
+                    }
+                }
+            }
+
+            function tick() {
+                if (!toggle || !toggle.checked) return;
+                countdown--;
+                if (countdown <= 0) {
+                    window.location.reload();
+                } else {
+                    updateLabel();
+                }
+            }
+
+            if (toggle) {
+                timer = setInterval(tick, 1000);
+                updateLabel();
+
+                toggle.addEventListener('change', function() {
+                    if (toggle.checked) {
+                        countdown = refreshIntervalSec;
+                    }
+                    updateLabel();
+                });
+            }
+        })();
+    </script>
+</body>
+</html>
