@@ -58,15 +58,22 @@ analisa_pasar/
 │   ├── asgi.py                      # Konfigurasi ASGI
 │   └── wsgi.py                      # Konfigurasi WSGI
 ├── data_ingestion/                  # Modul Penarikan Data Pasar
-│   ├── models.py                    # Model MarketInstrument (255 instrumen) & MarketData (650k+ baris)
-│   ├── tasks.py                     # Celery shared_task penarikan yfinance incremental upsert
+│   ├── models.py                    # Model MarketInstrument & MarketData (770k+ baris)
+│   ├── tasks.py                     # Celery shared_task (yfinance & IQ Option sync)
 │   ├── admin.py                     # Panel admin untuk manajemen instrumen
 │   ├── apps.py                      # Konfigurasi aplikasi
+│   ├── iqoption/                    # Submodul Integrasi IQ Option Traderoom
+│   │   ├── client.py                # Klien WebSocket & HTTP autentikasi SSID IQ Option
+│   │   ├── constants.py             # 372 Pemetaan Active ID & resolusi simbol aset
+│   │   └── service.py               # Bulk upsert lilin IQ Option & invalidasi cache
 │   └── management/commands/         # Utilitas Command-Line Interface (CLI)
 │       ├── seed_instruments.py      # Seeding 255 instrumen pasar multi-kategori
-│       ├── fetch_market_data.py     # CLI penarikan data multi-timeframe manual
+│       ├── seed_iqoption_instruments.py # Seeding aset OTC & Forex IQ Option
+│       ├── fetch_market_data.py     # CLI penarikan data multi-timeframe yfinance
+│       ├── fetch_iqoption_data.py   # CLI penarikan data IQ Option Traderoom
 │       ├── stream_crypto_realtime.py# Streaming data WebSocket Binance real-time
 │       ├── stream_forex_mt5.py      # Integrasi feed harga MetaTrader 5 (MT5 API)
+│       ├── stream_iqoption_realtime.py # Streaming WebSocket real-time IQ Option Traderoom
 │       └── validate_model.py        # Pengujian walk-forward backtesting akurasi model
 ├── technical_indicators/            # Modul Mesin Indikator & Algoritma Prediksi
 │   ├── services.py                  # Mesin komputasi kuantitatif (EMA, RSI, StochRSI, MACD, ATR, Prediksi)
@@ -80,6 +87,7 @@ analisa_pasar/
 ├── start.sh                         # Skrip otomasi peluncur seluruh sistem (Django, Celery Worker, Beat)
 ├── stop.sh                          # Skrip penghenti seluruh proses di latar belakang
 ├── README.md                        # Dokumentasi ringkas proyek
+├── PANDUAN_IQOPTION.md              # Panduan lengkap integrasi IQ Option Traderoom (SSID, OTC, Streaming)
 ├── MAKALAH.md                       # Makalah komprehensif presentasi hasil rekayasa sistem dari nol
 ├── ANALISIS_BUG_DAN_PERBAIKAN.md    # Laporan audit bug menyeluruh dan catatan implementasi solusi
 ├── PANDUAN_PREDIKSI_1M_5M.md        # Panduan strategi kuantitatif, scalping intraday, dan probabilitas

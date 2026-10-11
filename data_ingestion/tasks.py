@@ -70,13 +70,19 @@ def fetch_market_prices(timeframe='1d', symbols=None):
     period = cfg['period']
     interval = cfg['interval']
 
+    # Filter khusus instrumen Yahoo Finance aktif:
+    # Kecualikan instrumen OTC (khusus IQ Option) dan instrumen non-Yahoo
+    qs = MarketInstrument.objects.filter(is_active=True).exclude(symbol__endswith='-OTC')
+    if hasattr(MarketInstrument, 'data_source'):
+        qs = qs.filter(data_source='YAHOO')
+
     if symbols:
-        instruments = list(MarketInstrument.objects.filter(is_active=True, symbol__in=symbols))
+        instruments = list(qs.filter(symbol__in=symbols))
     else:
-        instruments = list(MarketInstrument.objects.filter(is_active=True))
+        instruments = list(qs)
 
     if not instruments:
-        logger.info("Tidak ada instrumen aktif yang ditemukan.")
+        logger.info(f"Tidak ada instrumen aktif Yahoo Finance yang ditemukan untuk timeframe='{timeframe}'.")
         return "No active instruments."
 
     total_symbols = len(instruments)
@@ -188,12 +194,24 @@ def fetch_market_prices(timeframe='1d', symbols=None):
                 logger.error(f"Gagal bulk_create database untuk batch {batch_symbols} [{timeframe}]: {str(e)}")
 
     # Bersihkan cache dashboard untuk timeframe ini agar tampilan langsung terbarui
-    cache.delete(f'dashboard_market_data_{timeframe}')
-    for cat in ['all', 'FOREX', 'CRYPTO', 'STOCK', 'COMMODITY']:
-        cache.delete(f'dashboard_market_data_{timeframe}_{cat}')
-    if symbols:
-        for sym in symbols:
-            cache.delete(f'dashboard_detail_{sym}_{timeframe}')
+    try:
+        cache.delete(f'dashboard_market_data_{timeframe}')
+        for cat in ['all', 'FOREX', 'CRYPTO', 'STOCK', 'COMMODITY']:
+            cache.delete(f'dashboard_market_data_{timeframe}_{cat}')
+        if symbols:
+            for sym in symbols:
+                cache.delete(f'dashboard_detail_{sym}_{timeframe}')
+    except Exception as cache_err:
+        logger.debug(f"Pembersihan cache dilewati ({timeframe}): {cache_err}")
+
+    # Evaluasi posisi Paper Trading terbuka terhadap data candle terbaru
+    if total_records_saved > 0:
+        try:
+            from paper_trading.services import evaluate_open_positions, process_auto_trading_signals
+            evaluate_open_positions()
+            process_auto_trading_signals()
+        except Exception as pt_err:
+            logger.debug(f"Pengecekan paper trading di task Celery dilewati: {pt_err}")
 
     result_msg = (
         f"Selesai Incremental [{timeframe}]: {success_count}/{total_symbols} instrumen diproses. "
@@ -215,4 +233,60 @@ def fetch_all_active_timeframes(timeframes=None):
     results = {}
     for tf in timeframes:
         results[tf] = fetch_market_prices(timeframe=tf)
+
+    # Sinkronkan instrumen IQ Option aktif untuk timeframe intraday
+    if hasattr(MarketInstrument, 'data_source') and MarketInstrument.objects.filter(is_active=True, data_source='IQOPTION').exists():
+        for tf in timeframes:
+            if tf in ['1m', '5m', '15m']:
+                try:
+                    results[f'iqoption_{tf}'] = fetch_iqoption_prices(timeframe=tf)
+                except Exception as e:
+                    logger.warning(f"Gagal tarik otomatis IQ Option [{tf}]: {e}")
+
     return results
+
+
+@shared_task
+def fetch_iqoption_prices(timeframe='1m', symbols=None, count=100, demo_feed=False):
+    """
+    Task Celery untuk penarikan berkala data lilin dari IQ Option Traderoom.
+    Mendukung simbol spesifik atau daftar instrumen IQ Option populer (termasuk OTC).
+    """
+    from .iqoption.constants import POPULAR_IQOPTION_INSTRUMENTS
+    from .iqoption.service import sync_iqoption_candles
+
+    if not symbols:
+        # Default tarik pasangan OTC populer IQ Option
+        target_symbols = [p['symbol'] for p in POPULAR_IQOPTION_INSTRUMENTS if p['symbol'].endswith('-OTC')]
+    elif isinstance(symbols, str):
+        target_symbols = [s.strip() for s in symbols.split(',') if s.strip()]
+    else:
+        target_symbols = list(symbols)
+
+    logger.info(f"Mulai task Celery IQ Option timeframe='{timeframe}' untuk {len(target_symbols)} instrumen.")
+
+    results = {}
+    total_saved = 0
+    for sym in target_symbols:
+        res = sync_iqoption_candles(
+            symbol=sym,
+            timeframe=timeframe,
+            count=count,
+            demo_feed=demo_feed
+        )
+        results[sym] = res
+        if res.get('success'):
+            total_saved += res.get('records_saved', 0)
+
+    # Evaluasi posisi Paper Trading terbuka terhadap data candle terbaru dari IQ Option
+    if total_saved > 0:
+        try:
+            from paper_trading.services import evaluate_open_positions, process_auto_trading_signals
+            evaluate_open_positions()
+            process_auto_trading_signals()
+        except Exception as pt_err:
+            logger.debug(f"Pengecekan paper trading di task IQ Option Celery dilewati: {pt_err}")
+
+    summary = f"Selesai Celery IQ Option [{timeframe}]: {len(target_symbols)} instrumen diproses. Total {total_saved} candle tersimpan."
+    logger.info(summary)
+    return summary

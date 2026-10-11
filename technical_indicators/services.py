@@ -316,7 +316,7 @@ def get_detailed_prediction(instrument_id, timeframe='1m'):
     qs = (
         MarketData.objects
         .filter(instrument=inst, timeframe=timeframe)
-        .order_by('-timestamp')[:75]
+        .order_by('-timestamp')[:150]
         .values('timestamp', 'open_price', 'high_price', 'low_price', 'close_price', 'volume')
     )
 
@@ -339,6 +339,8 @@ def get_detailed_prediction(instrument_id, timeframe='1m'):
 
     df = pd.DataFrame.from_records(records)
     df = df.iloc[::-1].reset_index(drop=True)
+    df.drop_duplicates(subset=['timestamp'], keep='last', inplace=True)
+    df.sort_values(by='timestamp', inplace=True)
     df.set_index('timestamp', inplace=True)
     close = df['close_price']
 
@@ -376,6 +378,12 @@ def get_detailed_prediction(instrument_id, timeframe='1m'):
     tr3 = (df['low_price'] - close.shift()).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     df['ATR_14'] = tr.ewm(alpha=1/14, min_periods=min(14, len(df)), adjust=False).mean()
+
+    # Pita Volatilitas ATR (Keltner-style envelope 1.5x ATR)
+    base_atr = df['EMA_21'].fillna(df['EMA_9']).fillna(close)
+    atr_val_col = df['ATR_14'].fillna(close * 0.0005)
+    df['ATR_Upper'] = base_atr + (atr_val_col * 1.5)
+    df['ATR_Lower'] = base_atr - (atr_val_col * 1.5)
 
     # Native Stochastic RSI (14, 14, 3, 3) - 35x lebih cepat daripada library eksternal
     min_rsi = rsi.rolling(window=14).min()
@@ -480,6 +488,130 @@ def get_detailed_prediction(instrument_id, timeframe='1m'):
     # Desain desimal adaptif
     decimals = 5 if ('=X' in inst.symbol or 'EUR' in inst.symbol or 'USD' in inst.symbol and 'BTC' not in inst.symbol) else (2 if close_val > 100 else 4)
 
+    # Format deret data lengkap untuk TradingView Lightweight Charts
+    chart_candles = []
+    chart_volume = []
+    chart_ema_9 = []
+    chart_ema_21 = []
+    chart_atr_upper = []
+    chart_atr_lower = []
+    chart_rsi = []
+    chart_macd = []
+    chart_macd_signal = []
+    chart_macd_hist = []
+    chart_markers = []
+
+    prev_e9 = None
+    prev_e21 = None
+    prev_time_sec = None
+
+    for ts, row in df.iterrows():
+        # Timestamp integer detik UTC untuk Lightweight Charts
+        if hasattr(ts, 'timestamp'):
+            time_sec = int(ts.timestamp())
+        else:
+            time_sec = int(pd.to_datetime(ts).timestamp())
+
+        # Pastikan deret waktu unik dan menaik secara ketat (persyaratan wajib Lightweight Charts)
+        if prev_time_sec is not None and time_sec <= prev_time_sec:
+            continue
+        prev_time_sec = time_sec
+
+        c_o = round(float(row['open_price']), decimals)
+        c_h = round(float(row['high_price']), decimals)
+        c_l = round(float(row['low_price']), decimals)
+        c_c = round(float(row['close_price']), decimals)
+        c_v = round(float(row.get('volume', 0.0) or 0.0), 2)
+
+        chart_candles.append({
+            'time': time_sec,
+            'open': c_o,
+            'high': c_h,
+            'low': c_l,
+            'close': c_c,
+        })
+
+        chart_volume.append({
+            'time': time_sec,
+            'value': c_v,
+            'color': 'rgba(16, 185, 129, 0.45)' if c_c >= c_o else 'rgba(239, 68, 68, 0.45)',
+        })
+
+        curr_e9 = float(row['EMA_9']) if pd.notna(row.get('EMA_9')) else None
+        curr_e21 = float(row['EMA_21']) if pd.notna(row.get('EMA_21')) else None
+        curr_atr_up = float(row['ATR_Upper']) if pd.notna(row.get('ATR_Upper')) else None
+        curr_atr_low = float(row['ATR_Lower']) if pd.notna(row.get('ATR_Lower')) else None
+
+        if curr_e9 is not None:
+            chart_ema_9.append({'time': time_sec, 'value': round(curr_e9, decimals)})
+        if curr_e21 is not None:
+            chart_ema_21.append({'time': time_sec, 'value': round(curr_e21, decimals)})
+        if curr_atr_up is not None:
+            chart_atr_upper.append({'time': time_sec, 'value': round(curr_atr_up, decimals)})
+        if curr_atr_low is not None:
+            chart_atr_lower.append({'time': time_sec, 'value': round(curr_atr_low, decimals)})
+
+        # Penanda persilangan tren EMA historis
+        if prev_e9 is not None and prev_e21 is not None and curr_e9 is not None and curr_e21 is not None:
+            if prev_e9 <= prev_e21 and curr_e9 > curr_e21:
+                chart_markers.append({
+                    'time': time_sec,
+                    'position': 'belowBar',
+                    'color': '#10b981',
+                    'shape': 'arrowUp',
+                    'text': 'BUY Cross',
+                })
+            elif prev_e9 >= prev_e21 and curr_e9 < curr_e21:
+                chart_markers.append({
+                    'time': time_sec,
+                    'position': 'aboveBar',
+                    'color': '#ef4444',
+                    'shape': 'arrowDown',
+                    'text': 'SELL Cross',
+                })
+
+        prev_e9 = curr_e9
+        prev_e21 = curr_e21
+
+        if pd.notna(row.get('RSI_14')):
+            chart_rsi.append({'time': time_sec, 'value': round(float(row['RSI_14']), 2)})
+
+        if pd.notna(row.get('MACD')):
+            m_v = round(float(row['MACD']), decimals)
+            s_v = round(float(row['MACD_Signal']), decimals) if pd.notna(row.get('MACD_Signal')) else 0.0
+            h_v = round(float(row['MACD_Hist']), decimals) if pd.notna(row.get('MACD_Hist')) else 0.0
+            chart_macd.append({'time': time_sec, 'value': m_v})
+            chart_macd_signal.append({'time': time_sec, 'value': s_v})
+            chart_macd_hist.append({
+                'time': time_sec,
+                'value': h_v,
+                'color': 'rgba(16, 185, 129, 0.7)' if h_v >= 0 else 'rgba(239, 68, 68, 0.7)',
+            })
+
+    # Penanda sinyal prediksi lilin terakhir
+    if chart_candles:
+        last_t = chart_candles[-1]['time']
+        # Cegah duplikasi penanda pada waktu lilin terakhir
+        chart_markers = [m for m in chart_markers if m['time'] != last_t]
+        if pred['direction'] == 'NAIK':
+            chart_markers.append({
+                'time': last_t,
+                'position': 'belowBar',
+                'color': '#22c55e',
+                'shape': 'arrowUp',
+                'text': f"BUY ({pred['prob_up']}%)",
+            })
+        elif pred['direction'] == 'TURUN':
+            chart_markers.append({
+                'time': last_t,
+                'position': 'aboveBar',
+                'color': '#ef4444',
+                'shape': 'arrowDown',
+                'text': f"SELL ({pred['prob_down']}%)",
+            })
+
+    chart_markers.sort(key=lambda m: m['time'])
+
     return {
         'has_enough_data': True,
         'instrument': {
@@ -535,4 +667,18 @@ def get_detailed_prediction(instrument_id, timeframe='1m'):
             'mtf_m15': mtf_m15,
         },
         'recent_candles': recent_candles,
+        'chart_data': {
+            'candles': chart_candles,
+            'ema_9': chart_ema_9,
+            'ema_21': chart_ema_21,
+            'atr_upper': chart_atr_upper,
+            'atr_lower': chart_atr_lower,
+            'rsi': chart_rsi,
+            'macd': chart_macd,
+            'macd_signal': chart_macd_signal,
+            'macd_hist': chart_macd_hist,
+            'volume': chart_volume,
+            'markers': chart_markers,
+            'decimals': decimals,
+        },
     }

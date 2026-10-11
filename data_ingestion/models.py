@@ -9,14 +9,20 @@ class MarketInstrument(models.Model):
         ('COMMODITY', 'Komoditas'),
     ]
 
+    SOURCE_CHOICES = [
+        ('YAHOO', 'Yahoo Finance'),
+        ('IQOPTION', 'IQ Option'),
+    ]
+
     symbol = models.CharField(max_length=20, unique=True, help_text="Contoh yfinance: EURUSD=X, BTC-USD, AAPL")
     name = models.CharField(max_length=100, help_text="Nama aset (contoh: Euro / US Dollar)")
     market_category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='FOREX')
+    data_source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='YAHOO', help_text="Sumber penyedia data feed (Yahoo Finance atau IQ Option)")
     is_active = models.BooleanField(default=True, help_text="Jika aktif, Celery akan rutin menarik data ini")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.symbol} ({self.get_market_category_display()})"
+        return f"{self.symbol} ({self.get_market_category_display()} - {self.get_data_source_display()})"
 
 class MarketData(models.Model):
     TIMEFRAME_CHOICES = [

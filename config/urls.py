@@ -10,8 +10,12 @@ urlpatterns = [
     
     # Rute utama diarahkan ke aplikasi trading_dashboard
     path('', include('trading_dashboard.urls')),
+
+    # Rute simulasi Paper Trading & Akun Virtual
+    path('paper-trading/', include('paper_trading.urls')),
 ]
 
 # Dukungan file statis jika berjalan di mode debug
 if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+    urlpatterns += staticfiles_urlpatterns()

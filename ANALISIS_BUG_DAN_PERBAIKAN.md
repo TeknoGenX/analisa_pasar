@@ -198,15 +198,148 @@ Dokumen ini mencatat secara menyeluruh hasil audit kode, analisis akar penyebab 
       dynamic_period = '1d'
   ```
 
+### 13. Kegagalan Unit Test `test_market_instrument_creation` Pasca-Integrasi IQ Option
+* **Lokasi Berkas**: `data_ingestion/tests.py` & `data_ingestion/models.py`
+* **Gejala**:
+  Eksekusi `python manage.py test` menghasilkan:
+  > `AssertionError: 'BTC-USD (Cryptocurrency - Yahoo Finance)' != 'BTC-USD (Cryptocurrency)'`
+* **Akar Masalah**:
+  Metode `__str__` pada model `MarketInstrument` diperbarui untuk menampilkan sumber data (`get_data_source_display()`), namun ekspektasi pengujian pada unit test lama belum disesuaikan.
+* **Solusi yang Diterapkan**:
+  Memperbarui ekspektasi pada unit test agar selaras dengan output `MarketInstrument.__str__` yang menyertakan data source.
+
+---
+
+### 14. Kebocoran Event Loop Asyncio pada Pemanggilan Berulang `IQOptionClient.get_candles`
+* **Lokasi Berkas**: `data_ingestion/iqoption/client.py`
+* **Gejala**:
+  Ketika instance `IQOptionClient` yang sama dipanggil berulang kali untuk menarik candle secara sinkron (`get_candles()`), eksekusi kedua menghasilkan error:
+  > `RuntimeError: Task <...> got Future <...> attached to a different loop`
+* **Akar Masalah**:
+  Metode `get_candles()` membungkus pemanggilan asinkron menggunakan `asyncio.run()`. Ketika `asyncio.run()` selesai, event loop ditutup namun koneksi WebSocket `self.ws` tetap tersimpan dan terikat pada event loop lama yang sudah tertutup. Pada pemanggilan berikutnya, `self.ws` digunakan di event loop baru tanpa direkoneksi, memicu galat runtime loop.
+* **Solusi yang Diterapkan**:
+  Membungkus eksekusi `get_candles_async()` dalam coroutine pelari (`_runner`) dengan blok `finally: await self.close()` untuk menjamin penutupan dan pelepasan objek WebSocket sebelum event loop ditutup.
+
+---
+
+### 15. Silent Skipping Sinkronisasi & Auto-Fetch Instrumen IQ Option pada Web Dashboard
+* **Lokasi Berkas**: `trading_dashboard/views.py` (`main_dashboard` & `sync_data`)
+* **Gejala**:
+  Ketika pengguna memilih instrumen IQ Option (seperti `EURUSD-OTC`) yang datanya masih kosong di SQLite, atau menekan tombol *"⚡ Tarik Data EURUSD-OTC"*, sistem tidak menarik data apa pun dan candle tetap kosong.
+* **Akar Masalah**:
+  Handler sinkronisasi individual di `views.py` secara kaku memanggil `fetch_market_prices(symbols=[selected_inst.symbol])`. Karena `fetch_market_prices` khusus untuk Yahoo Finance dan mengecualikan instrumen OTC/non-Yahoo, query menghasilkan queryset kosong (`No active instruments.`), sehingga permintaan diabaikan secara diam-diam.
+* **Solusi yang Diterapkan**:
+  Menambahkan routing kondisional: jika `selected_inst.data_source == 'IQOPTION'` atau simbol berakhiran `-OTC`, alur diarahkan ke `fetch_iqoption_prices()`. Serta menambahkan unit test `test_single_market_sync_iqoption_redirect` untuk mengamankan fungsionalitas ini.
+
+---
+
+### 16. Potensi Infinite Loop saat Terputus Koneksi WebSocket pada `stream_candles`
+* **Lokasi Berkas**: `data_ingestion/iqoption/client.py`
+* **Gejala**:
+  Jika koneksi WebSocket terputus di tengah streaming, loop menerima exception `websockets.ConnectionClosed`, tidur 1 detik, lalu memanggil `recv()` pada socket tertutup secara terus-menerus.
+* **Solusi yang Diterapkan**:
+  Menambahkan penanganan khusus `websockets.ConnectionClosed` dengan jeda reconnect 2 detik dan pengiriman ulang payload langganan (`subscribeMessage`).
+
+---
+
+### 17. Pengaktifan Kembali Mode SQLite WAL (Write-Ahead Logging)
+* **Lokasi Berkas**: `db.sqlite3`
+* **Gejala**:
+  File basis data berada pada mode `delete` alih-alih `wal`, berpotensi memicu disk lock saat Celery Worker dan Django runserver bekerja bersamaan.
+* **Solusi yang Diterapkan**:
+  Mengeksekusi `PRAGMA journal_mode=WAL;` pada basis data lokal SQLite3.
+
+---
+
+### 18. SyntaxError pada Eksekutor CLI Streaming Real-Time IQ Option
+* **Lokasi Berkas**: `data_ingestion/management/commands/stream_iqoption_realtime.py` Baris 173
+* **Gejala**:
+  Eksekusi skrip streaming real-time IQ Option langsung gagal dengan pesan kesalahan:
+  > `SyntaxError: '(' was never closed`
+* **Akar Masalah**:
+  Pemanggilan `await sync_to_async(MarketData.objects.update_or_create)(` lupa ditutup kurung tutupnya pada baris deklarasi `defaults={...}`.
+* **Solusi yang Diterapkan**:
+  Menambahkan kurung penutup `)` pada pemanggilan fungsi `update_or_create`. Terverifikasi berhasil mengompilasi dan menjalankan streaming demo feed tanpa galat.
+
+---
+
+### 19. Ketergantungan Keras Redis pada Invalidation Cache & Kegagalan Suite Unit Test
+* **Lokasi Berkas**: `data_ingestion/iqoption/service.py`, `trading_dashboard/views.py`, `data_ingestion/tasks.py`, & `config/settings.py`
+* **Gejala**:
+  1. Ketika server Redis offline atau restart, penarikan data candle IQ Option dilaporkan gagal (`success: False, records_saved: 0`) meskipun candle sebenarnya sudah sukses tersimpan ke database SQLite3.
+  2. Eksekusi unit test `python manage.py test` mengalami 8 error kaskade `ConnectionError: Error 111 connecting to 127.0.0.1:6379`.
+* **Akar Masalah**:
+  1. Pembersihan cache (`cache.delete(...)`) dieksekusi tanpa penanganan eksepsi. Karena cache merupakan optimasi performa non-kritis, kegagalan koneksi cache tidak boleh menggugurkan operasi database inti.
+  2. Pengaturan `CACHES` di Django settings tidak mengisolasi lingkungan pengujian, sehingga unit test mewajibkan daemon Redis aktif di port 6379.
+* **Solusi yang Diterapkan**:
+  * Membungkus seluruh pemanggilan pembacaan, penulisan, dan pembersihan cache (`cache.get`, `cache.set`, `cache.delete`) dalam blok penanganan aman `try-except`. Jika Redis tidak tersedia, sistem tetap berjalan normal membaca langsung dari SQLite3.
+  * Mengonfigurasi `LocMemCache` secara otomatis di `settings.py` jika perintah `test` dijalankan (`if 'test' in sys.argv:`), menjamin isolasi total seluruh 26 unit test tanpa dependensi eksternal.
+
+---
+
+### 20. Tidak Terevaluasinya Posisi Paper Trading pada Background Task IQ Option
+* **Lokasi Berkas**: `data_ingestion/tasks.py` (`fetch_iqoption_prices`)
+* **Gejala**:
+  Ketika order paper trading dibuka untuk instrumen IQ Option (seperti `EURUSD-OTC`), posisi terbuka tidak pernah tertutup otomatis oleh TP (Take Profit) atau SL (Stop Loss) saat Celery worker mengunduh candle baru di latar belakang.
+* **Akar Masalah**:
+  Logika evaluasi posisi `evaluate_open_positions()` dan pemindaian `process_auto_trading_signals()` hanya disematkan pada fungsi `fetch_market_prices` (khusus Yahoo Finance) dan terlewat pada task `fetch_iqoption_prices`.
+* **Solusi yang Diterapkan**:
+  Menambahkan pemanggilan `evaluate_open_positions()` dan `process_auto_trading_signals()` pada `fetch_iqoption_prices` segera setelah baris lilin baru tersimpan.
+
+---
+
+### 21. Ketidakcocokan Parameter URL Alert Error pada Paper Trading View
+* **Lokasi Berkas**: `paper_trading/views.py` (`create_order_view`) vs `trading_dashboard/views.py`
+* **Gejala**:
+  Ketika pengguna memasukkan instrumen yang tidak valid pada formulir order, pesan error tidak muncul di kotak peringatan dashboard web.
+* **Akar Masalah**:
+  `create_order_view` mengarahkan redirect ke `/?error={msg}`, sementara `main_dashboard` dan antarmuka web hanya mendengarkan parameter `order_error`.
+* **Solusi yang Diterapkan**:
+  Menyelaraskan redirect ke `/?order_error={msg}` dan memperbarui `main_dashboard` untuk mendukung parameter `order_error` maupun fallback `error`.
+
+---
+
+### 22. Potensi Pelanggaran Integritas Timestamp pada TradingView Lightweight Charts
+* **Lokasi Berkas**: `technical_indicators/services.py` (`get_detailed_prediction`)
+* **Gejala**:
+  Pada dataset dengan timestamp ganda atau timestamp microsecond yang membulat ke detik yang sama, library TradingView Lightweight Charts melemparkan galat konsol:
+  > `Assertion failed: data must be asc ordered by time, [...], duplicate time`
+  dan menghentikan rendering grafik secara total.
+* **Akar Masalah**:
+  Struktur deret data `chart_candles`, `chart_volume`, `chart_ema_9`, dsb. tidak memvalidasi keunikan detik integer secara ketat.
+* **Solusi yang Diterapkan**:
+  Menambahkan penjaga deret waktu `if prev_time_sec is not None and time_sec <= prev_time_sec: continue` pada loop pembentukan payload grafik, menjamin seluruh timestamp menaik secara ketat (*strictly ascending*).
+
+---
+
+### 23. Penanganan Aman Map `param.seriesData` pada Hover Tooltip Crosshair
+* **Lokasi Berkas**: `trading_dashboard/templates/trading_dashboard/index.html`
+* **Gejala**:
+  Pada peramban tertentu atau saat kursor keluar cepat dari area kanvas, pemanggilan `param.seriesData.get(...)` berpotensi memicu `TypeError: Cannot read properties of undefined (reading 'get')`.
+* **Akar Masalah**:
+  `param.seriesData` diasumsikan selalu terdefinisi tanpa validasi awal ketersediaan metode `.get()`.
+* **Solusi yang Diterapkan**:
+  Menerapkan pemeriksaan defensif: `const sd = param.seriesData; const c = (sd && typeof sd.get === 'function') ? sd.get(candleSeries) : null;`.
+
+---
+
+### 24. Proteksi Transaksi Atomik Saldo Akun Virtual Paper Trading
+* **Lokasi Berkas**: `paper_trading/services.py` (`open_paper_trade` & `close_paper_trade`)
+* **Gejala**:
+  Potensi anomali saldo jika order dibuka atau ditutup secara bersamaan dalam request paralel.
+* **Solusi yang Diterapkan**:
+  Menyematkan dekorator `@transaction.atomic` pada `open_paper_trade` dan `close_paper_trade` untuk menjamin konsistensi pembukuan kas simulasi.
+
 ---
 
 ## 📊 Ringkasan Hasil Pengujian Pasca-Perbaikan
 
-| Aspek Pengujian | Sebelum Perbaikan | Setelah Perbaikan | Status |
+| Aspek Pengujian | Sebelum Audit & Perbaikan | Setelah Audit & Perbaikan | Status |
 | :--- | :---: | :---: | :---: |
-| **Ketersediaan Data 1m & 5m** | Kosong Total (0 bar) | **237.000+ Bar Candle Intraday** | ✅ Terselesaikan |
-| **Kecepatan Komputasi per Aset** | ~36.8 milidetik | **~1.1 milidetik (Native Vector)** | ✅ 35x Lebih Cepat |
-| **Latensi Respons Halaman 1m (255 Aset)**| 15 – 20 Detik (Hang) | **~4.2 Detik (Cold) / <10 ms (Cache)** | ✅ Stabil & Ringan |
-| **Latensi Respons Halaman 1 Pasar Tunggal**| N/A (Belum Ada Fitur) | **~50 milidetik** | ✅ Sangat Cepat |
-| **Integritas Penutupan Candle Terakhir** | Tertahan nilai berjalan (*stale*) | **Ter-update Akurat via Upsert `<`** | ✅ 100% Akurat |
-| **Unit Test Django (`manage.py test`)** | Belum Terintegrasi | **11/11 Test Suites Lolos (0.669s)** | ✅ Lolos Sempurna |
+| **Kompilasi CLI IQ Option Realtime** | SyntaxError: '(' was never closed | **Kompilasi Bersih & Demo Streaming Berjalan** | ✅ Terselesaikan |
+| **Ketahanan Server terhadap Redis Gangguan** | Error 500 / Data Sync False | **Degradasi Anggun (Fallback Aman ke DB)** | ✅ Resilient & Handal |
+| **Unit Test Django (`manage.py test`)** | 8 Error & 1 Gagal | **26/26 Test Suites Lolos Sempurna (0.69s)** | ✅ 100% Lolos |
+| **Isolasi Cache Unit Test** | Wajib koneksi Redis aktif port 6379 | **Otomatis LocMemCache (Terisolasi Total)** | ✅ Standar Django |
+| **Evaluasi Posisi Paper Trading Celery** | Hanya aset Yahoo Finance | **Mendukung Penuh Aset IQ Option / OTC** | ✅ Otomatis |
+| **Integritas Waktu TradingView Charts** | Rawan crash assertion waktu duplikat | **Strict Monotonic Ascending Timestamps** | ✅ Stabil & Bebas Bug |
+| **Penanganan Error Parameter Dashboard** | Pesan error tertelan/hilang | **Muncul Presisi di Alert Banner UI** | ✅ Responsif |

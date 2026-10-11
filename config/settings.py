@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'data_ingestion',
     'technical_indicators',
     'trading_dashboard',
+    'paper_trading',
 ]
 
 MIDDLEWARE = [
@@ -87,12 +88,21 @@ DATABASES = {
 
 # Redis Caching Setup
 # Digunakan untuk menyimpan hasil kalkulasi Pandas agar dashboard tidak berat
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': f"{os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')}/1",
+import sys
+if 'test' in sys.argv:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'test-cache',
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': f"{os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')}/1",
+        }
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -111,6 +121,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'static']
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -163,6 +174,14 @@ CELERY_BEAT_SCHEDULE = {
         'kwargs': {'timeframe': '1wk'},
     },
 }
+
+# Penarikan Otomatis IQ Option Traderoom (jika kredensial dikonfigurasi di .env)
+if os.environ.get('IQOPTION_SSID') or (os.environ.get('IQOPTION_EMAIL') and os.environ.get('IQOPTION_PASSWORD')):
+    CELERY_BEAT_SCHEDULE['tarik-iqoption-1m-tiap-2-menit'] = {
+        'task': 'data_ingestion.tasks.fetch_iqoption_prices',
+        'schedule': crontab(minute='*/2'),
+        'kwargs': {'timeframe': '1m'},
+    }
 
 # ==========================================
 # LOGGING CONFIGURATION

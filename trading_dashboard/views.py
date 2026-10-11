@@ -1,13 +1,37 @@
 import csv
+import json
 import logging
+from collections.abc import Hashable
+from typing import Any, cast
+
 import pandas as pd
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.core.cache import cache
 from data_ingestion.models import MarketInstrument, MarketData
 from technical_indicators.services import analyze_instrument_optimized, get_detailed_prediction
 
 logger = logging.getLogger(__name__)
+
+
+def typed_analyze_instrument_optimized(
+    instrument_id: int, timeframe: str = '1d'
+) -> dict[Hashable, Any] | None:
+    """Type-safe wrapper around the imported analysis function."""
+    return cast(
+        dict[Hashable, Any] | None,
+        analyze_instrument_optimized(instrument_id, timeframe=timeframe),
+    )
+
+
+def typed_get_detailed_prediction(
+    instrument_id: int, timeframe: str = '1d'
+) -> dict[str, Any] | None:
+    """Type-safe wrapper around the imported detailed prediction function."""
+    return cast(
+        dict[str, Any] | None,
+        get_detailed_prediction(instrument_id, timeframe=timeframe),
+    )
 
 TIMEFRAME_LIST = [
     ('1m', '1 Menit'),
@@ -23,6 +47,7 @@ VALID_TIMEFRAMES = dict(TIMEFRAME_LIST)
 
 POPULAR_SYMBOLS = [
     ('EURUSD=X', 'EUR/USD', 'FOREX'),
+    ('EURUSD-OTC', 'EUR/USD (OTC IQ)', 'FOREX'),
     ('GBPUSD=X', 'GBP/USD', 'FOREX'),
     ('USDJPY=X', 'USD/JPY', 'FOREX'),
     ('BTC-USD', 'BTC/USD', 'CRYPTO'),
@@ -47,7 +72,7 @@ def resolve_instrument(symbol_query):
     """
     Pencari instrumen cerdas dan fleksibel:
     Mendukung simbol lengkap ('EURUSD=X'), tanpa akhiran ('EURUSD'),
-    huruf kecil/besar, nama parsial, atau ID numerik.
+    simbol OTC IQ Option ('EURUSD-OTC'), huruf kecil/besar, nama parsial, atau ID numerik.
     """
     if not symbol_query or str(symbol_query).strip().lower() in ['', 'all', 'semua']:
         return None
@@ -59,6 +84,12 @@ def resolve_instrument(symbol_query):
     if inst:
         return inst
 
+    # 1b. Cek normalisasi OTC (contoh: EURUSD_OTC -> EURUSD-OTC)
+    if '_' in sq and 'otc' in sq.lower():
+        inst = MarketInstrument.objects.filter(symbol__iexact=sq.replace('_', '-')).first()
+        if inst:
+            return inst
+
     # 2. Cek tambahan sufiks Forex '=X' (contoh: EURUSD -> EURUSD=X)
     inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq}=X").first()
     if inst:
@@ -68,6 +99,20 @@ def resolve_instrument(symbol_query):
     inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq}-USD").first()
     if inst:
         return inst
+
+    # 3b. Cek kripto dengan sufiks USD tanpa strip (contoh: BTCUSD -> BTC-USD)
+    if sq.upper().endswith('USD') and len(sq) > 3:
+        base = sq[:-3].upper()
+        inst = MarketInstrument.objects.filter(symbol__iexact=f"{base}-USD").first()
+        if inst:
+            return inst
+
+    # 3c. Cek komoditas populer (contoh: XAUUSD / GOLD -> GC=F, XAGUSD / SILVER -> SI=F)
+    comm_map = {'XAUUSD': 'GC=F', 'GOLD': 'GC=F', 'XAGUSD': 'SI=F', 'SILVER': 'SI=F'}
+    if sq.upper() in comm_map:
+        inst = MarketInstrument.objects.filter(symbol__iexact=comm_map[sq.upper()]).first()
+        if inst:
+            return inst
 
     # 4. Cek tambahan sufiks Saham IDX '.JK' (contoh: BBCA -> BBCA.JK)
     inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq}.JK").first()
@@ -243,22 +288,33 @@ def main_dashboard(request):
         # MODE 1 PASAR TERPILIH (Fokus Instrumen & Prediksi 1 Menit)
         # -------------------------------------------------------------
         detail_cache_key = f'dashboard_detail_{selected_inst.symbol}_{tf}'
-        prediction_data = cache.get(detail_cache_key)
+        try:
+            prediction_data = cache.get(detail_cache_key)
+        except Exception as e:
+            logger.debug(f"Cache get gagal: {e}")
+            prediction_data = None
 
         if prediction_data is None:
-            prediction_data = get_detailed_prediction(selected_inst.id, timeframe=tf)
+            prediction_data = typed_get_detailed_prediction(selected_inst.id, timeframe=tf)
 
             # Jika data di database masih kosong atau kurang dari 15 candle,
             # lakukan auto-sync langsung untuk instrumen ini agar pengguna langsung melihat data!
             if prediction_data and not prediction_data.get('has_enough_data'):
                 try:
-                    from data_ingestion.tasks import fetch_market_prices
-                    fetch_market_prices(timeframe=tf, symbols=[selected_inst.symbol])
-                    prediction_data = get_detailed_prediction(selected_inst.id, timeframe=tf)
+                    if getattr(selected_inst, 'data_source', 'YAHOO') == 'IQOPTION' or selected_inst.symbol.endswith('-OTC'):
+                        from data_ingestion.tasks import fetch_iqoption_prices
+                        fetch_iqoption_prices(timeframe=tf, symbols=[selected_inst.symbol])
+                    else:
+                        from data_ingestion.tasks import fetch_market_prices
+                        fetch_market_prices(timeframe=tf, symbols=[selected_inst.symbol])
+                    prediction_data = typed_get_detailed_prediction(selected_inst.id, timeframe=tf)
                 except Exception as e:
                     logger.warning(f"Gagal auto-fetch untuk {selected_inst.symbol}: {e}")
 
-            cache.set(detail_cache_key, prediction_data, timeout=cache_ttl)
+            try:
+                cache.set(detail_cache_key, prediction_data, timeout=cache_ttl)
+            except Exception as e:
+                logger.debug(f"Cache set gagal: {e}")
 
         summary = compute_single_instrument_summary(prediction_data)
         has_data_in_db = MarketData.objects.filter(instrument=selected_inst, timeframe=tf).exists()
@@ -267,7 +323,11 @@ def main_dashboard(request):
         # MODE SEMUA PASAR (Tabel Ringkasan Global Multi-Instrumen)
         # -------------------------------------------------------------
         cache_key = f'dashboard_market_data_{tf}_{category_filter or "all"}'
-        dashboard_data = cache.get(cache_key)
+        try:
+            dashboard_data = cache.get(cache_key)
+        except Exception as e:
+            logger.debug(f"Cache get global gagal: {e}")
+            dashboard_data = None
 
         if dashboard_data is None:
             instruments_qs = MarketInstrument.objects.filter(is_active=True)
@@ -276,7 +336,7 @@ def main_dashboard(request):
 
             dashboard_data = []
             for inst in instruments_qs:
-                analysis_result = analyze_instrument_optimized(inst.id, timeframe=tf)
+                analysis_result = typed_analyze_instrument_optimized(inst.id, timeframe=tf)
                 if analysis_result:
                     decimals = 5 if ('=X' in inst.symbol or 'EUR' in inst.symbol or 'USD' in inst.symbol and 'BTC' not in inst.symbol) else (2 if (analysis_result.get('close_price') or 0) > 100 else 4)
                     dashboard_data.append({
@@ -307,13 +367,45 @@ def main_dashboard(request):
                         'last_update': analysis_result.get('timestamp')
                     })
 
-            cache.set(cache_key, dashboard_data, timeout=cache_ttl)
+            try:
+                cache.set(cache_key, dashboard_data, timeout=cache_ttl)
+            except Exception as e:
+                logger.debug(f"Cache set global gagal: {e}")
 
         summary = compute_summary(dashboard_data)
         has_data_in_db = MarketData.objects.filter(timeframe=tf).exists()
 
     grouped_instruments = get_instruments_grouped()
     is_synced = request.GET.get('synced') == '1'
+    order_opened = request.GET.get('order_opened') == '1'
+    order_closed = request.GET.get('order_closed') == '1'
+    account_reset = request.GET.get('account_reset') == '1'
+    order_error = request.GET.get('order_error') or request.GET.get('error')
+
+    # Integrasi Akun Virtual Paper Trading & Evaluasi Posisi
+    virtual_account = None
+    open_trades = []
+    closed_trades = []
+    paper_stats = {}
+    auto_setting = None
+
+    try:
+        from paper_trading.services import get_or_create_default_account, evaluate_open_positions
+        evaluate_open_positions()
+        virtual_account = get_or_create_default_account()
+        open_trades = list(virtual_account.trades.filter(status='OPEN').select_related('instrument'))
+        for ot in open_trades:
+            last_c = ot.instrument.price_data.filter(timeframe=ot.timeframe).order_by('-timestamp').first()
+            curr_p = last_c.close_price if last_c else ot.entry_price
+            ot.current_price = curr_p
+            ot.floating_pnl = ot.calculate_floating_pnl(curr_p)
+            ot.floating_pct = round((ot.floating_pnl / ot.amount) * 100, 2) if ot.amount > 0 else 0.0
+
+        closed_trades = list(virtual_account.trades.exclude(status='OPEN').select_related('instrument')[:25])
+        paper_stats = virtual_account.get_stats()
+        auto_setting = virtual_account.auto_setting
+    except Exception as e:
+        logger.warning(f"Gagal memuat data akun paper trading: {e}")
 
     context = {
         'selected_instrument': selected_inst,
@@ -329,6 +421,16 @@ def main_dashboard(request):
         'is_synced': is_synced,
         'search_error': search_error,
         'current_symbol': selected_inst.symbol if selected_inst else '',
+        'virtual_account': virtual_account,
+        'open_trades': open_trades,
+        'closed_trades': closed_trades,
+        'paper_stats': paper_stats,
+        'auto_setting': auto_setting,
+        'order_opened': order_opened,
+        'order_closed': order_closed,
+        'account_reset': account_reset,
+        'order_error': order_error,
+        'chart_data_json': json.dumps(prediction_data.get('chart_data', {})) if (prediction_data and prediction_data.get('has_enough_data')) else '{}',
     }
 
     return render(request, 'trading_dashboard/index.html', context)
@@ -349,24 +451,34 @@ def sync_market_data(request):
 
     if selected_inst:
         # Hapus cache spesifik instrumen ini dan timeframe ini
-        cache.delete(f'dashboard_detail_{selected_inst.symbol}_{tf}')
-        cache.delete(f'dashboard_market_data_{tf}_all')
-        cache.delete(f'dashboard_market_data_{tf}_{selected_inst.market_category}')
+        try:
+            cache.delete(f'dashboard_detail_{selected_inst.symbol}_{tf}')
+            cache.delete(f'dashboard_market_data_{tf}_all')
+            cache.delete(f'dashboard_market_data_{tf}_{selected_inst.market_category}')
+        except Exception as e:
+            logger.debug(f"Pembersihan cache instrumen dilewati: {e}")
 
         try:
-            from data_ingestion.tasks import fetch_market_prices
-            # Eksekusi langsung secara synchronous agar data tersedia seketika
-            fetch_market_prices(timeframe=tf, symbols=[selected_inst.symbol])
+            if getattr(selected_inst, 'data_source', 'YAHOO') == 'IQOPTION' or selected_inst.symbol.endswith('-OTC'):
+                from data_ingestion.tasks import fetch_iqoption_prices
+                fetch_iqoption_prices(timeframe=tf, symbols=[selected_inst.symbol])
+            else:
+                from data_ingestion.tasks import fetch_market_prices
+                # Eksekusi langsung secara synchronous agar data tersedia seketika
+                fetch_market_prices(timeframe=tf, symbols=[selected_inst.symbol])
         except Exception as e:
             logger.error(f"Gagal sinkron instrumen {selected_inst.symbol} [{tf}]: {str(e)}")
 
         return redirect(f'/?symbol={selected_inst.symbol}&tf={tf}&synced=1')
     else:
         # Sinkronisasi massal seluruh instrumen
-        cache.delete(f'dashboard_market_data_{tf}_all')
-        cache.delete(f'dashboard_market_data_{tf}')
-        for cat in ['FOREX', 'CRYPTO', 'STOCK', 'COMMODITY']:
-            cache.delete(f'dashboard_market_data_{tf}_{cat}')
+        try:
+            cache.delete(f'dashboard_market_data_{tf}_all')
+            cache.delete(f'dashboard_market_data_{tf}')
+            for cat in ['FOREX', 'CRYPTO', 'STOCK', 'COMMODITY']:
+                cache.delete(f'dashboard_market_data_{tf}_{cat}')
+        except Exception as e:
+            logger.debug(f"Pembersihan cache massal dilewati: {e}")
 
         try:
             from data_ingestion.tasks import fetch_market_prices
@@ -374,6 +486,18 @@ def sync_market_data(request):
         except Exception:
             from data_ingestion.tasks import fetch_market_prices
             fetch_market_prices(timeframe=tf)
+
+        # Sinkronisasi IQ Option jika ada instrumen aktif IQ Option dan timeframe didukung
+        if hasattr(MarketInstrument, 'data_source') and MarketInstrument.objects.filter(is_active=True, data_source='IQOPTION').exists() and tf in ['1m', '5m', '15m', '30m', '1h', '1d']:
+            try:
+                from data_ingestion.tasks import fetch_iqoption_prices
+                fetch_iqoption_prices.delay(timeframe=tf)
+            except Exception:
+                try:
+                    from data_ingestion.tasks import fetch_iqoption_prices
+                    fetch_iqoption_prices(timeframe=tf)
+                except Exception as e:
+                    logger.warning(f"Gagal sinkron massal IQ Option [{tf}]: {e}")
 
         return redirect(f'/?tf={tf}&synced=1')
 
@@ -406,7 +530,7 @@ def export_csv(request):
     ])
 
     for inst in instruments:
-        result = analyze_instrument_optimized(inst.id, timeframe=tf)
+        result = typed_analyze_instrument_optimized(inst.id, timeframe=tf)
         if result:
             writer.writerow([
                 inst.symbol,
@@ -433,3 +557,29 @@ def export_csv(request):
             ])
 
     return response
+
+
+def chart_data_api(request):
+    """
+    API JSON yang mengembalikan deret waktu lilin, volume, EMA, RSI, MACD,
+    dan penanda sinyal untuk TradingView Lightweight Charts.
+    """
+    symbol_query = request.GET.get('symbol', '').strip()
+    tf = request.GET.get('tf', '1m').strip()
+    if tf not in VALID_TIMEFRAMES:
+        tf = '1m'
+
+    inst = resolve_instrument(symbol_query) if symbol_query else None
+    if not inst:
+        return JsonResponse({'success': False, 'error': f"Instrumen '{symbol_query}' tidak ditemukan."}, status=404)
+
+    prediction_data = typed_get_detailed_prediction(inst.id, timeframe=tf)
+    if not prediction_data or not prediction_data.get('has_enough_data'):
+        return JsonResponse({'success': False, 'error': f"Data lilin {inst.symbol} [{tf}] belum mencukupi."}, status=400)
+
+    return JsonResponse({
+        'success': True,
+        'symbol': inst.symbol,
+        'timeframe': tf,
+        'chart_data': prediction_data.get('chart_data', {})
+    })

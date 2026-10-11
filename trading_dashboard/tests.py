@@ -5,6 +5,8 @@ from datetime import timedelta
 from data_ingestion.models import MarketInstrument, MarketData
 
 class DashboardViewsTestCase(TestCase):
+    from unittest.mock import patch
+
     def setUp(self):
         self.client = Client()
         self.instrument = MarketInstrument.objects.create(
@@ -82,8 +84,6 @@ class DashboardViewsTestCase(TestCase):
         self.assertIn('EURUSD=X', content)
         self.assertIn('Prediksi Arah', content)
 
-    from unittest.mock import patch
-
     @patch('data_ingestion.tasks.fetch_market_prices')
     def test_single_market_sync_redirect(self, mock_fetch):
         response = self.client.get(reverse('trading_dashboard:sync_data') + '?symbol=EURUSD=X&tf=1m')
@@ -92,7 +92,57 @@ class DashboardViewsTestCase(TestCase):
         self.assertIn('tf=1m', response.url)
         mock_fetch.assert_called_once_with(timeframe='1m', symbols=['EURUSD=X'])
 
+    @patch('data_ingestion.tasks.fetch_iqoption_prices')
+    def test_single_market_sync_iqoption_redirect(self, mock_fetch_iq):
+        inst_otc = MarketInstrument.objects.create(
+            symbol='EURUSD-OTC',
+            name='EUR/USD (OTC)',
+            market_category='FOREX',
+            data_source='IQOPTION',
+            is_active=True
+        )
+        response = self.client.get(reverse('trading_dashboard:sync_data') + '?symbol=EURUSD-OTC&tf=1m')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('symbol=EURUSD-OTC', response.url)
+        self.assertIn('tf=1m', response.url)
+        mock_fetch_iq.assert_called_once_with(timeframe='1m', symbols=['EURUSD-OTC'])
+
     def test_category_filter(self):
         response = self.client.get(reverse('trading_dashboard:main_dashboard') + '?category=FOREX&tf=1d')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['active_category'], 'FOREX')
+
+    def test_interactive_chart_rendering_and_components(self):
+        import json
+        response = self.client.get(reverse('trading_dashboard:main_dashboard') + '?symbol=EURUSD=X&tf=1d')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('chart_data_json', response.context)
+        
+        # Verifikasi payload JSON grafik
+        chart_data = json.loads(response.context['chart_data_json'])
+        self.assertIn('candles', chart_data)
+        self.assertIn('ema_9', chart_data)
+        self.assertIn('ema_21', chart_data)
+        self.assertIn('atr_upper', chart_data)
+        self.assertIn('atr_lower', chart_data)
+        self.assertIn('rsi', chart_data)
+        self.assertIn('macd', chart_data)
+        self.assertIn('volume', chart_data)
+        self.assertIn('markers', chart_data)
+        self.assertEqual(len(chart_data['candles']), 25)
+        self.assertEqual(len(chart_data['atr_upper']), 25)
+        self.assertEqual(len(chart_data['atr_lower']), 25)
+
+        # Verifikasi elemen visual TradingView pada HTML
+        html = response.content.decode('utf-8')
+        self.assertIn('id="tvChartCard"', html)
+        self.assertIn('id="tradingviewMainChart"', html)
+        self.assertIn('id="tradingviewOscChart"', html)
+        self.assertIn('id="btnToggleEma9"', html)
+        self.assertIn('id="btnToggleEma21"', html)
+        self.assertIn('id="btnToggleAtr"', html)
+        self.assertIn('id="btnToggleVol"', html)
+        self.assertIn('id="btnToggleMarkers"', html)
+        self.assertIn('id="btnOscRsi"', html)
+        self.assertIn('id="btnOscMacd"', html)
+        self.assertIn('id="rawCandleTableCollapse"', html)

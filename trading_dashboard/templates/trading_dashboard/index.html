@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -8,6 +9,13 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- TradingView Lightweight Charts Library -->
+    <script src="{% static 'js/lightweight-charts.standalone.production.js' %}"></script>
+    <script>
+        if (typeof LightweightCharts === 'undefined') {
+            document.write('<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"><\/script>');
+        }
+    </script>
     <style>
         body { 
             background-color: #0b0f19; 
@@ -41,6 +49,47 @@
         
         .form-select, .form-control { background-color: #0b0f19; border-color: #334155; color: #f1f5f9; }
         .form-select:focus, .form-control:focus { background-color: #0b0f19; border-color: #3b82f6; color: #f1f5f9; box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25); }
+
+        /* Styling TradingView Interactive Chart */
+        .btn-outline-purple {
+            color: #c084fc;
+            border-color: #a855f7;
+        }
+        .btn-outline-purple:hover, .btn-outline-purple.active {
+            background-color: #a855f7 !important;
+            border-color: #a855f7 !important;
+            color: #ffffff !important;
+        }
+        .btn-outline-teal {
+            color: #2dd4bf;
+            border-color: #14b8a6;
+        }
+        .btn-outline-teal:hover, .btn-outline-teal.active {
+            background-color: #14b8a6 !important;
+            border-color: #14b8a6 !important;
+            color: #ffffff !important;
+        }
+        .legend-color-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        #tvChartCard:fullscreen {
+            padding: 16px;
+            background-color: #131722 !important;
+            overflow-y: auto;
+            width: 100vw;
+            height: 100vh;
+        }
+        #tvChartCard:fullscreen #tradingviewMainChart {
+            height: calc(100vh - 240px) !important;
+        }
+        #tvChartCard:fullscreen #tradingviewOscChart {
+            height: 160px !important;
+        }
     </style>
 </head>
 <body>
@@ -53,6 +102,52 @@
                 <div>
                     <strong>Data Berhasil Disinkronkan!</strong> Sistem telah memperbarui candle dan menganalisa pergerakan timeframe <strong>{{ active_tf }}</strong>{% if selected_instrument %} untuk instrumen <strong>{{ selected_instrument.symbol }}</strong>{% endif %}.
                 </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        {% if order_opened %}
+        <div class="alert alert-success alert-dismissible fade show shadow-sm mb-4 border-0 bg-success bg-opacity-25 text-success" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">🎮</span>
+                <div>
+                    <strong>Order Paper Trading Berhasil Dibuka!</strong> Modal margin teralokasi dari akun virtual Anda. Posisi aktif kini dipantau otomatis terhadap level TP & SL.
+                </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        {% if order_closed %}
+        <div class="alert alert-info alert-dismissible fade show shadow-sm mb-4 border-0 bg-info bg-opacity-25 text-info" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">🔔</span>
+                <div>
+                    <strong>Posisi Paper Trading Berhasil Ditutup!</strong> Realized P&L telah dihitung dan saldo kas akun virtual telah diperbarui.
+                </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        {% if account_reset %}
+        <div class="alert alert-warning alert-dismissible fade show shadow-sm mb-4 border-0 bg-warning bg-opacity-25 text-warning" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">🔄</span>
+                <div>
+                    <strong>Akun Virtual Berhasil Direset!</strong> Saldo kas telah dikembalikan ke $10,000.00 dan seluruh riwayat transaksi telah dikosongkan.
+                </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        {% if order_error %}
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm mb-4 border-0 bg-danger bg-opacity-25 text-danger" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">❌</span>
+                <div><strong>Gagal Eksekusi Order:</strong> {{ order_error }}</div>
             </div>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
@@ -78,9 +173,18 @@
                     Sistem Prediksi Multi-Indikator, Price Action, & Multi-Timeframe Confluence (Model Research Validated: BTC-USD PF 1.52)
                 </p>
             </div>
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <!-- Tombol Manajer Paper Trading Virtual Account -->
+                <button type="button" class="btn btn-outline-info btn-sm fw-bold shadow-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#paperTradingModal" title="Buka Jurnal & Manajer Paper Trading">
+                    <span>🎮 Akun Virtual:</span>
+                    <span class="text-warning fw-black">${{ virtual_account.balance|floatformat:2|default:"10,000.00" }}</span>
+                    {% if open_trades %}
+                    <span class="badge bg-danger rounded-pill animate-pulse">{{ open_trades|length }} Terbuka</span>
+                    {% endif %}
+                </button>
+
                 {% if selected_instrument %}
-                <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-warning btn-sm fw-semibold shadow-sm text-dark" title="Tarik data instan Yahoo Finance untuk instrumen ini">
+                <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-warning btn-sm fw-semibold shadow-sm text-dark" title="Tarik data instan ({% if selected_instrument.data_source == 'IQOPTION' %}IQ Option Traderoom{% else %}Yahoo Finance{% endif %}) untuk instrumen ini">
                     ⚡ Tarik Data {{ selected_instrument.symbol }} (1s)
                 </a>
                 <a href="{% url 'trading_dashboard:export_csv' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-success btn-sm fw-semibold shadow-sm">
@@ -318,6 +422,121 @@
                 </div>
             </div>
 
+            <!-- PANEL EKSEKUSI CEPAT PAPER TRADING (ONE-CLICK ORDER) -->
+            <div class="card shadow-sm p-4 mb-4 border border-info border-opacity-50" style="background: linear-gradient(145deg, #131c2e, #1a233a);">
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fs-4">🎮</span>
+                        <div>
+                            <h5 class="fw-bold mb-0 text-light">Simulasi Paper Trading (Akun Virtual)</h5>
+                            <span class="extra-small text-muted">Latih strategi dan uji probabilitas prediksi tanpa risiko uang riil</span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="text-end">
+                            <span class="extra-small text-muted text-uppercase d-block fw-semibold">Saldo Kas Tersedia:</span>
+                            <span class="fs-5 fw-black text-warning">${{ virtual_account.balance|floatformat:2|default:"10,000.00" }}</span>
+                        </div>
+                        <button type="button" class="btn btn-outline-info btn-sm fw-bold px-3 shadow-sm" data-bs-toggle="modal" data-bs-target="#paperTradingModal">
+                            📑 Jurnal & Riwayat ({{ open_trades|length }} Terbuka)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="row align-items-center g-3">
+                    <!-- Kolom Input Pengaturan Order -->
+                    <div class="col-lg-5 col-md-12">
+                        <div class="bg-black bg-opacity-30 p-3 rounded-3 border border-secondary">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="small fw-bold text-light mb-0">Modal per Order ($):</label>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-secondary py-0 px-2 quick-amount-btn" data-val="50">$50</button>
+                                    <button type="button" class="btn btn-outline-secondary py-0 px-2 quick-amount-btn" data-val="100">$100</button>
+                                    <button type="button" class="btn btn-outline-secondary py-0 px-2 quick-amount-btn" data-val="250">$250</button>
+                                    <button type="button" class="btn btn-outline-secondary py-0 px-2 quick-amount-btn" data-val="500">$500</button>
+                                </div>
+                            </div>
+                            <div class="input-group input-group-sm mb-3">
+                                <span class="input-group-text bg-dark border-secondary text-light fw-bold">$</span>
+                                <input type="number" id="tradeAmountInput" class="form-control fw-bold" value="100" min="5" step="10">
+                            </div>
+
+                            <div class="row g-2 extra-small text-muted">
+                                <div class="col-6">
+                                    <span>Target TP (ATR):</span>
+                                    <span class="text-success fw-bold d-block fs-6">
+                                        {% if prediction_data.prediction.direction == 'NAIK' %}
+                                            {{ prediction_data.prediction.target_up }}
+                                        {% else %}
+                                            {{ prediction_data.prediction.target_down }}
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="col-6">
+                                    <span>Batas SL (ATR):</span>
+                                    <span class="text-danger fw-bold d-block fs-6">
+                                        {% if prediction_data.prediction.direction == 'NAIK' %}
+                                            {{ prediction_data.prediction.stop_loss_buy }}
+                                        {% else %}
+                                            {{ prediction_data.prediction.stop_loss_sell }}
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Kolom Tombol Eksekusi Cepat BUY & SELL -->
+                    <div class="col-lg-7 col-md-12">
+                        <div class="row g-2">
+                            <div class="col-sm-6">
+                                <form method="post" action="{% url 'paper_trading:create_order' %}" class="trade-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="symbol" value="{{ selected_instrument.symbol }}">
+                                    <input type="hidden" name="timeframe" value="{{ active_tf }}">
+                                    <input type="hidden" name="order_type" value="BUY">
+                                    <input type="hidden" name="amount" class="sync-amount-field" value="100">
+                                    <input type="hidden" name="take_profit" value="{{ prediction_data.prediction.target_up }}">
+                                    <input type="hidden" name="stop_loss" value="{{ prediction_data.prediction.stop_loss_buy }}">
+                                    <button type="submit" class="btn btn-success w-100 py-3 fw-bold shadow-sm d-flex flex-column align-items-center justify-content-center">
+                                        <span class="fs-6"><i class="fa-solid fa-arrow-trend-up me-1"></i> BUKA ORDER BUY (CALL)</span>
+                                        <span class="extra-small opacity-90 fw-normal">Peluang Naik: {{ prediction_data.prediction.prob_up }}% | Target: {{ prediction_data.prediction.target_up }}</span>
+                                    </button>
+                                </form>
+                            </div>
+                            <div class="col-sm-6">
+                                <form method="post" action="{% url 'paper_trading:create_order' %}" class="trade-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="symbol" value="{{ selected_instrument.symbol }}">
+                                    <input type="hidden" name="timeframe" value="{{ active_tf }}">
+                                    <input type="hidden" name="order_type" value="SELL">
+                                    <input type="hidden" name="amount" class="sync-amount-field" value="100">
+                                    <input type="hidden" name="take_profit" value="{{ prediction_data.prediction.target_down }}">
+                                    <input type="hidden" name="stop_loss" value="{{ prediction_data.prediction.stop_loss_sell }}">
+                                    <button type="submit" class="btn btn-danger w-100 py-3 fw-bold shadow-sm d-flex flex-column align-items-center justify-content-center">
+                                        <span class="fs-6"><i class="fa-solid fa-arrow-trend-down me-1"></i> BUKA ORDER SELL (PUT)</span>
+                                        <span class="extra-small opacity-90 fw-normal">Peluang Turun: {{ prediction_data.prediction.prob_down }}% | Target: {{ prediction_data.prediction.target_down }}</span>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Status Auto-Trade Helper -->
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-1 extra-small text-muted">
+                            <div>
+                                <span class="badge {% if auto_setting.is_enabled %}bg-success{% else %}bg-secondary{% endif %} me-1">
+                                    {% if auto_setting.is_enabled %}🤖 Auto-Trade Aktif{% else %}⚪ Auto-Trade Nonaktif{% endif %}
+                                </span>
+                                <span>Bot mengeksekusi otomatis saat sinyal $\ge {{ auto_setting.min_probability }}%$.</span>
+                            </div>
+                            <button type="button" class="btn btn-link btn-sm p-0 extra-small text-info text-decoration-none" data-bs-toggle="modal" data-bs-target="#paperTradingModal">
+                                Kelola Bot ⚙️
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- MATRIKS 4 PILAR INDIKATOR TEKNIKAL -->
             <div class="row mb-4">
                 <div class="col-md-3 col-sm-6 mb-3">
@@ -407,59 +626,161 @@
                 </div>
             </div>
 
-            <!-- TABEL RIWAYAT 15 LILIN TERAKHIR -->
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-dark py-3 d-flex justify-content-between align-items-center border-bottom border-secondary">
-                    <h6 class="fw-bold text-light mb-0">
-                        🕯️ Riwayat 15 Bar Lilin Terakhir ({{ selected_instrument.symbol }} - {{ active_tf }})
-                    </h6>
-                    <span class="text-muted small">Diurutkan dari candle terbaru ke terlama</span>
+            <!-- DATA PAYLOAD JSON UNTUK GRAFIK LIGHTWEIGHT CHARTS -->
+            <script id="chartDataPayload" type="application/json">{{ chart_data_json|safe }}</script>
+
+            <!-- KARTU GRAFIK CANDLESTICK INTERAKTIF (TRADINGVIEW LIGHTWEIGHT CHARTS) -->
+            <div class="card shadow-lg mb-4 border border-secondary border-opacity-50 overflow-hidden" id="tvChartCard" style="background-color: #131722;">
+                <!-- TOOLBAR HEADER GRAFIK -->
+                <div class="card-header border-bottom border-secondary border-opacity-50 py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2" style="background-color: #1e222d;">
+                    <!-- Sisi Kiri: Simbol, Nama & Selektor Kerangka Waktu Cepat -->
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <span class="fs-5">📊</span>
+                        <div>
+                            <span class="fw-bold text-white fs-6">{{ selected_instrument.symbol }}</span>
+                            <span class="text-muted small ms-1 d-none d-sm-inline">({{ selected_instrument.name }})</span>
+                        </div>
+                        <div class="btn-group btn-group-sm ms-2" role="group" aria-label="Timeframe">
+                            {% for tf_code, tf_label in timeframes %}
+                            <a href="?symbol={{ selected_instrument.symbol }}&tf={{ tf_code }}" 
+                               class="btn btn-sm {% if tf_code == active_tf %}btn-primary fw-bold text-white{% else %}btn-dark text-muted border-secondary border-opacity-50{% endif %} py-0 px-2"
+                               title="{{ tf_label }}">
+                                {{ tf_code|upper }}
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Sisi Kanan: Kontrol Overlay Indikator, Osilator & Toolbar -->
+                    <div class="d-flex align-items-center flex-wrap gap-1">
+                        <!-- Toggle Overlay Indikator Utama -->
+                        <button type="button" class="btn btn-sm btn-outline-info py-0 px-2 active" id="btnToggleEma9" title="Toggle Garis EMA 9 (Biru Muda)">
+                            <span class="legend-color-dot" style="background-color: #38bdf8;"></span>EMA 9
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 active" id="btnToggleEma21" title="Toggle Garis EMA 21 (Kuning Emas)">
+                            <span class="legend-color-dot" style="background-color: #f59e0b;"></span>EMA 21
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-purple py-0 px-2 active" id="btnToggleAtr" title="Toggle Pita Volatilitas ATR 1.5x (Ungu)">
+                            <span class="legend-color-dot" style="background-color: #a855f7;"></span>Pita ATR
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-teal py-0 px-2 active" id="btnToggleVol" title="Toggle Batang Volume Transaksi">
+                            <span class="legend-color-dot" style="background-color: #14b8a6;"></span>Vol
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 active" id="btnToggleMarkers" title="Toggle Penanda Sinyal BUY / SELL Otomatis">
+                            <span class="legend-color-dot" style="background-color: #22c55e;"></span>Sinyal
+                        </button>
+
+                        <span class="text-secondary opacity-50 mx-1">|</span>
+
+                        <!-- Switcher Panel Osilator Bawah (RSI / MACD / Tutup) -->
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Oscillators">
+                            <button type="button" class="btn btn-sm btn-primary active py-0 px-2" id="btnOscRsi" title="Tampilkan Panel Osilator RSI 14">
+                                RSI
+                            </button>
+                            <button type="button" class="btn btn-sm btn-dark text-light border-secondary py-0 px-2" id="btnOscMacd" title="Tampilkan Panel Osilator MACD (12, 26, 9)">
+                                MACD
+                            </button>
+                            <button type="button" class="btn btn-sm btn-dark text-muted border-secondary py-0 px-2" id="btnOscNone" title="Sembunyikan Panel Osilator">
+                                ✕
+                            </button>
+                        </div>
+
+                        <span class="text-secondary opacity-50 mx-1">|</span>
+
+                        <!-- Alat Kontrol Tampilan & Tabel -->
+                        <button type="button" class="btn btn-sm btn-dark text-light border-secondary py-0 px-2" id="btnResetZoom" title="Sesuaikan Tampilan Grafik (Fit Content)">
+                            🔍 Fit
+                        </button>
+                        <button type="button" class="btn btn-sm btn-dark text-light border-secondary py-0 px-2" id="btnFullscreen" title="Layar Penuh (Fullscreen)">
+                            ⛶
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary text-light py-0 px-2" data-bs-toggle="collapse" data-bs-target="#rawCandleTableCollapse" aria-expanded="false" title="Buka/Tutup Tabel Lilin Mentah">
+                            📋 Tabel
+                        </button>
+                    </div>
                 </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0 text-center">
-                            <thead>
-                                <tr>
-                                    <th>Waktu (WIB)</th>
-                                    <th>Arah Lilin</th>
-                                    <th>Open (Buka)</th>
-                                    <th>High (Tertinggi)</th>
-                                    <th>Low (Terendah)</th>
-                                    <th>Close (Tutup)</th>
-                                    <th>Perubahan (Delta)</th>
-                                    <th>Volume</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for c in prediction_data.recent_candles %}
-                                <tr>
-                                    <td class="text-muted small fw-medium">
-                                        {{ c.timestamp|date:"d M Y" }}<br>
-                                        <strong class="text-light">{{ c.timestamp|date:"H:i:s" }} WIB</strong>
-                                    </td>
-                                    <td>
-                                        {% if c.color == 'HIJAU' %}
-                                        <span class="badge bg-success bg-opacity-25 text-success fw-bold px-2 py-1">▲ HIJAU (NAIK)</span>
-                                        {% else %}
-                                        <span class="badge bg-danger bg-opacity-25 text-danger fw-bold px-2 py-1">▼ MERAH (TURUN)</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="text-muted fw-semibold">{{ c.open }}</td>
-                                    <td class="text-success fw-semibold">{{ c.high }}</td>
-                                    <td class="text-danger fw-semibold">{{ c.low }}</td>
-                                    <td class="fw-bold fs-6 text-light bg-dark bg-opacity-50">{{ c.close }}</td>
-                                    <td class="{% if c.color == 'HIJAU' %}candle-green{% else %}candle-red{% endif %}">
-                                        {% if c.change > 0 %}+{% endif %}{{ c.change }} ({{ c.change_pct }}%)
-                                    </td>
-                                    <td class="text-muted small">{{ c.volume }}</td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="8" class="text-center py-4 text-muted">Belum ada baris candle yang tersimpan.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+
+                <!-- LIVE HOVER LEGEND / TOOLTIP (OHLC & INDIKATOR DINAMIS) -->
+                <div class="px-3 py-1 border-bottom border-secondary border-opacity-25 d-flex flex-wrap align-items-center gap-3 extra-small text-muted font-monospace" id="chartLiveLegend" style="background-color: #181a20; min-height: 28px;">
+                    <span class="text-light fw-bold" id="legSymbol">{{ selected_instrument.symbol }}</span>
+                    <span class="text-secondary" id="legTime">-</span>
+                    <span>O: <strong class="text-light" id="legOpen">-</strong></span>
+                    <span>H: <strong class="text-success" id="legHigh">-</strong></span>
+                    <span>L: <strong class="text-danger" id="legLow">-</strong></span>
+                    <span>C: <strong class="text-light" id="legClose">-</strong></span>
+                    <span>Delta: <strong id="legChange">-</strong></span>
+                    <span>Vol: <strong class="text-info" id="legVol">-</strong></span>
+                    <span id="legEma9Span" style="color: #38bdf8;">EMA9: <strong id="legEma9">-</strong></span>
+                    <span id="legEma21Span" style="color: #f59e0b;">EMA21: <strong id="legEma21">-</strong></span>
+                    <span id="legAtrSpan" style="color: #a855f7;">ATR: <strong id="legAtr">-</strong></span>
+                    <span id="legOscSpan" style="color: #818cf8;">RSI: <strong id="legOscVal">-</strong></span>
+                </div>
+
+                <!-- KONTENER KANVAS GRAFIK -->
+                <div class="card-body p-0 position-relative">
+                    <!-- Kanvas Grafik Lilin Utama (Candlesticks, EMA 9, EMA 21, ATR Band, Volume, Sinyal Markers) -->
+                    <div id="tradingviewMainChart" style="width: 100%; height: 440px;"></div>
+                    
+                    <!-- Kanvas Panel Osilator Bawah (RSI 14 / MACD Sinkron) -->
+                    <div id="tradingviewOscChart" style="width: 100%; height: 160px; border-top: 1px solid rgba(255, 255, 255, 0.08);"></div>
+                </div>
+            </div>
+
+            <!-- TABEL DATA MENTAH 15 LILIN (COLLAPSIBLE / OPSIONAL) -->
+            <div class="collapse mb-4" id="rawCandleTableCollapse">
+                <div class="card shadow-sm border border-secondary">
+                    <div class="card-header bg-dark py-2 d-flex justify-content-between align-items-center border-bottom border-secondary">
+                        <span class="fw-bold text-light small">
+                            📋 Data Mentah 15 Bar Lilin Terakhir ({{ selected_instrument.symbol }} - {{ active_tf }})
+                        </span>
+                        <button type="button" class="btn-close btn-close-white btn-sm" data-bs-toggle="collapse" data-bs-target="#rawCandleTableCollapse"></button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0 text-center small">
+                                <thead>
+                                    <tr>
+                                        <th>Waktu (WIB)</th>
+                                        <th>Arah Lilin</th>
+                                        <th>Open (Buka)</th>
+                                        <th>High (Tertinggi)</th>
+                                        <th>Low (Terendah)</th>
+                                        <th>Close (Tutup)</th>
+                                        <th>Perubahan (Delta)</th>
+                                        <th>Volume</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for c in prediction_data.recent_candles %}
+                                    <tr>
+                                        <td class="text-muted extra-small fw-medium">
+                                            {{ c.timestamp|date:"d M Y" }}<br>
+                                            <strong class="text-light">{{ c.timestamp|date:"H:i:s" }} WIB</strong>
+                                        </td>
+                                        <td>
+                                            {% if c.color == 'HIJAU' %}
+                                            <span class="badge bg-success bg-opacity-25 text-success fw-bold px-2 py-1">▲ HIJAU (NAIK)</span>
+                                            {% else %}
+                                            <span class="badge bg-danger bg-opacity-25 text-danger fw-bold px-2 py-1">▼ MERAH (TURUN)</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-muted fw-semibold">{{ c.open }}</td>
+                                        <td class="text-success fw-semibold">{{ c.high }}</td>
+                                        <td class="text-danger fw-semibold">{{ c.low }}</td>
+                                        <td class="fw-bold fs-6 text-light bg-dark bg-opacity-50">{{ c.close }}</td>
+                                        <td class="{% if c.color == 'HIJAU' %}candle-green{% else %}candle-red{% endif %}">
+                                            {% if c.change > 0 %}+{% endif %}{{ c.change }} ({{ c.change_pct }}%)
+                                        </td>
+                                        <td class="text-muted small">{{ c.volume }}</td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="8" class="text-center py-4 text-muted">Belum ada baris candle yang tersimpan.</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -642,9 +963,299 @@
         {% endif %}
     </div>
 
+    <!-- ======================================================== -->
+    <!-- MODAL JURNAL & MANAJER PAPER TRADING                     -->
+    <!-- ======================================================== -->
+    <div class="modal fade" id="paperTradingModal" tabindex="-1" aria-labelledby="paperTradingModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content bg-dark text-light border border-secondary shadow-lg">
+                <div class="modal-header border-secondary bg-black bg-opacity-30">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fs-4">🎮</span>
+                        <div>
+                            <h5 class="modal-title fw-bold text-light" id="paperTradingModalLabel">
+                                Jurnal & Manajer Paper Trading
+                            </h5>
+                            <span class="extra-small text-muted">Akun Virtual Tanpa Risiko Modal Riil</span>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <!-- Kartu Metrik Performa Akun -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-lg-3 col-sm-6">
+                            <div class="card p-3 text-center border-secondary bg-black bg-opacity-25 h-100">
+                                <span class="extra-small text-muted fw-bold text-uppercase">Saldo Kas</span>
+                                <div class="fs-4 fw-black text-warning my-1">${{ virtual_account.balance|floatformat:2|default:"10,000.00" }}</div>
+                                <span class="extra-small text-muted">Modal awal: ${{ virtual_account.initial_balance|floatformat:2|default:"10,000.00" }}</span>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-sm-6">
+                            <div class="card p-3 text-center border-secondary bg-black bg-opacity-25 h-100">
+                                <span class="extra-small text-muted fw-bold text-uppercase">Total Ekuitas</span>
+                                <div class="fs-4 fw-black text-light my-1">${{ virtual_account.equity|floatformat:2|default:"10,000.00" }}</div>
+                                <span class="extra-small {% if paper_stats.roi_percent >= 0 %}text-success{% else %}text-danger{% endif %} fw-semibold">
+                                    ROI: {% if paper_stats.roi_percent >= 0 %}+{% endif %}{{ paper_stats.roi_percent|default:"0.00" }}%
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-sm-6">
+                            <div class="card p-3 text-center border-secondary bg-black bg-opacity-25 h-100">
+                                <span class="extra-small text-muted fw-bold text-uppercase">Win Rate</span>
+                                <div class="fs-4 fw-black text-info my-1">{{ paper_stats.win_rate|default:"0" }}%</div>
+                                <span class="extra-small text-muted">{{ paper_stats.win_trades|default:"0" }} Menang / {{ paper_stats.loss_trades|default:"0" }} Kalah</span>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-sm-6">
+                            <div class="card p-3 text-center border-secondary bg-black bg-opacity-25 h-100">
+                                <span class="extra-small text-muted fw-bold text-uppercase">Net P&L Bersih</span>
+                                <div class="fs-4 fw-black {% if paper_stats.net_pnl >= 0 %}text-success{% else %}text-danger{% endif %} my-1">
+                                    {% if paper_stats.net_pnl >= 0 %}+{% endif %}${{ paper_stats.net_pnl|floatformat:2|default:"0.00" }}
+                                </div>
+                                <span class="extra-small text-muted">Profit Factor: {{ paper_stats.profit_factor|default:"0.0" }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Panel Konfigurasi Bot Auto-Trading -->
+                    <div class="card p-3 mb-4 border-secondary bg-black bg-opacity-30">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                            <div>
+                                <h6 class="fw-bold mb-1 text-light">🤖 Konfigurasi Bot Auto-Trade</h6>
+                                <span class="extra-small text-muted">Bot akan otomatis membuka posisi virtual saat sinyal kuantitatif mencapai batas probabilitas.</span>
+                            </div>
+                            <form id="autoTradeConfigForm" class="d-flex flex-wrap align-items-center gap-2">
+                                {% csrf_token %}
+                                <div class="input-group input-group-sm" style="width: 140px;">
+                                    <span class="input-group-text bg-dark border-secondary text-light">Modal $</span>
+                                    <input type="number" id="autoTradeAmountInput" class="form-control" value="{{ auto_setting.trade_amount|default:"100" }}" min="10" step="10">
+                                </div>
+                                <div class="input-group input-group-sm" style="width: 140px;">
+                                    <span class="input-group-text bg-dark border-secondary text-light">Min %</span>
+                                    <input type="number" id="autoTradeProbInput" class="form-control" value="{{ auto_setting.min_probability|default:"70" }}" min="50" max="95">
+                                </div>
+                                <button type="button" id="toggleAutoTradeBtn" class="btn btn-sm {% if auto_setting.is_enabled %}btn-success{% else %}btn-outline-secondary{% endif %} fw-bold px-3">
+                                    {% if auto_setting.is_enabled %}✅ Bot Aktif{% else %}⚪ Aktifkan Bot{% endif %}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Tab Navigasi Posisi Terbuka & Jurnal Riwayat -->
+                    <ul class="nav nav-pills mb-3 border-bottom border-secondary pb-2" id="paperTradingTab" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-bold btn-sm py-2 px-3" id="open-positions-tab" data-bs-toggle="pill" data-bs-target="#open-positions-content" type="button" role="tab">
+                                🎯 Posisi Terbuka <span class="badge bg-danger rounded-pill ms-1">{{ open_trades|length }}</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-bold btn-sm py-2 px-3 text-light" id="trading-journal-tab" data-bs-toggle="pill" data-bs-target="#trading-journal-content" type="button" role="tab">
+                                📜 Riwayat Transaksi (Jurnal) <span class="badge bg-secondary rounded-pill ms-1">{{ closed_trades|length }}</span>
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" id="paperTradingTabContent">
+                        <!-- TAB 1: POSISI TERBUKA -->
+                        <div class="tab-pane fade show active" id="open-positions-content" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Simbol</th>
+                                            <th>Arah</th>
+                                            <th>TF</th>
+                                            <th>Harga Masuk</th>
+                                            <th>Harga Terkini</th>
+                                            <th>Target (TP)</th>
+                                            <th>Batas (SL)</th>
+                                            <th>Modal</th>
+                                            <th>Floating P&L</th>
+                                            <th>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for trade in open_trades %}
+                                        <tr>
+                                            <td class="fw-bold">{{ trade.instrument.symbol }}</td>
+                                            <td>
+                                                {% if trade.order_type == 'BUY' %}
+                                                <span class="badge bg-success bg-opacity-25 text-success px-2 py-1">🟢 BUY</span>
+                                                {% else %}
+                                                <span class="badge bg-danger bg-opacity-25 text-danger px-2 py-1">🔴 SELL</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="extra-small">{{ trade.timeframe }}</td>
+                                            <td>{{ trade.entry_price }}</td>
+                                            <td class="fw-bold">{{ trade.current_price|default:trade.entry_price }}</td>
+                                            <td class="text-success extra-small fw-semibold">{{ trade.take_profit|default:"-" }}</td>
+                                            <td class="text-danger extra-small fw-semibold">{{ trade.stop_loss|default:"-" }}</td>
+                                            <td>${{ trade.amount|floatformat:2 }}</td>
+                                            <td>
+                                                <span class="fw-bold {% if trade.floating_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                                    {% if trade.floating_pnl >= 0 %}+{% endif %}${{ trade.floating_pnl|floatformat:2 }}
+                                                    <span class="extra-small">({% if trade.floating_pct >= 0 %}+{% endif %}{{ trade.floating_pct|floatformat:1 }}%)</span>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <form method="post" action="{% url 'paper_trading:close_order' trade.id %}" style="display:inline;">
+                                                    {% csrf_token %}
+                                                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2 fw-semibold" title="Tutup posisi sekarang pada harga pasar">
+                                                        ❌ Tutup
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr>
+                                            <td colspan="10" class="text-center py-4 text-muted">
+                                                Tidak ada posisi terbuka saat ini. Buka posisi baru menggunakan tombol One-Click Order di atas!
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- TAB 2: RIWAYAT TRANSAKSI TERTUTUP (TRADING JOURNAL) -->
+                        <div class="tab-pane fade" id="trading-journal-content" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Waktu Selesai</th>
+                                            <th>Simbol</th>
+                                            <th>Arah</th>
+                                            <th>Harga Entri</th>
+                                            <th>Harga Keluar</th>
+                                            <th>Modal</th>
+                                            <th>Realized P&L</th>
+                                            <th>Status / Alasan Keluar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for ct in closed_trades %}
+                                        <tr>
+                                            <td class="extra-small text-muted">{{ ct.exit_time|date:"d M H:i:s"|default:ct.entry_time|date:"d M H:i:s" }}</td>
+                                            <td class="fw-bold">{{ ct.instrument.symbol }}</td>
+                                            <td>
+                                                {% if ct.order_type == 'BUY' %}
+                                                <span class="badge bg-success bg-opacity-25 text-success px-2 py-1">BUY</span>
+                                                {% else %}
+                                                <span class="badge bg-danger bg-opacity-25 text-danger px-2 py-1">SELL</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ ct.entry_price }}</td>
+                                            <td>{{ ct.exit_price|default:"-" }}</td>
+                                            <td>${{ ct.amount|floatformat:2 }}</td>
+                                            <td>
+                                                <span class="fw-bold {% if ct.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                                    {% if ct.pnl >= 0 %}+{% endif %}${{ ct.pnl|floatformat:2 }}
+                                                    <span class="extra-small">({% if ct.pnl_percent >= 0 %}+{% endif %}{{ ct.pnl_percent|floatformat:1 }}%)</span>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {% if ct.status == 'CLOSED_TP' %}
+                                                <span class="badge bg-success rounded-pill px-2 py-1">🎯 Take Profit</span>
+                                                {% elif ct.status == 'CLOSED_SL' %}
+                                                <span class="badge bg-danger rounded-pill px-2 py-1">🛑 Stop Loss</span>
+                                                {% else %}
+                                                <span class="badge bg-secondary rounded-pill px-2 py-1">✋ Manual</span>
+                                                {% endif %}
+                                                <span class="extra-small text-muted d-block">{{ ct.exit_reason }}</span>
+                                            </td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr>
+                                            <td colspan="8" class="text-center py-4 text-muted">
+                                                Belum ada riwayat transaksi yang ditutup.
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-secondary bg-black bg-opacity-30 d-flex justify-content-between">
+                    <form method="post" action="{% url 'paper_trading:reset_account' %}" onsubmit="return confirm('Apakah Anda yakin ingin mereset saldo akun virtual kembali ke $10,000.00 dan menghapus seluruh riwayat transaksi?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-warning btn-sm fw-semibold">
+                            🔄 Reset Saldo Akun ($10,000)
+                        </button>
+                    </form>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Tutup</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Sinkronisasi Input Modal Cepat Paper Trading
+        (function() {
+            const amountInput = document.getElementById('tradeAmountInput');
+            const syncFields = document.querySelectorAll('.sync-amount-field');
+            const quickBtns = document.querySelectorAll('.quick-amount-btn');
+
+            if (amountInput) {
+                amountInput.addEventListener('input', function() {
+                    syncFields.forEach(f => f.value = amountInput.value);
+                });
+
+                quickBtns.forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const val = this.getAttribute('data-val');
+                        amountInput.value = val;
+                        syncFields.forEach(f => f.value = val);
+                        quickBtns.forEach(b => b.classList.remove('btn-secondary', 'text-white'));
+                        this.classList.add('btn-secondary', 'text-white');
+                    });
+                });
+            }
+
+            // AJAX Toggle Auto Trade Bot
+            const toggleBtn = document.getElementById('toggleAutoTradeBtn');
+            const autoAmount = document.getElementById('autoTradeAmountInput');
+            const autoProb = document.getElementById('autoTradeProbInput');
+
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', function() {
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]') ? document.querySelector('[name=csrfmiddlewaretoken]').value : '';
+                    const formData = new FormData();
+                    formData.append('trade_amount', autoAmount ? autoAmount.value : '100');
+                    formData.append('min_probability', autoProb ? autoProb.value : '70');
+
+                    fetch("{% url 'paper_trading:toggle_auto_trade' %}", {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            if (data.is_enabled) {
+                                toggleBtn.className = 'btn btn-sm btn-success fw-bold px-3';
+                                toggleBtn.textContent = '✅ Bot Aktif';
+                            } else {
+                                toggleBtn.className = 'btn btn-sm btn-outline-secondary fw-bold px-3';
+                                toggleBtn.textContent = '⚪ Aktifkan Bot';
+                            }
+                        }
+                    })
+                    .catch(err => console.error('Gagal toggle auto trade:', err));
+                });
+            }
+        })();
+
         // Logika Auto-Refresh Cerdas untuk timeframe intraday (1m, 5m)
         (function() {
             const activeTf = "{{ active_tf }}";
@@ -694,6 +1305,574 @@
                     updateLabel();
                 });
             }
+        })();
+
+        // ========================================================
+        // INISIALISASI TRADINGVIEW LIGHTWEIGHT CHARTS INTERAKTIF
+        // ========================================================
+        (function() {
+            const mainContainer = document.getElementById('tradingviewMainChart');
+            const oscContainer = document.getElementById('tradingviewOscChart');
+            const payloadEl = document.getElementById('chartDataPayload');
+
+            if (!mainContainer || !payloadEl) return;
+
+            let chartData = null;
+            try {
+                chartData = JSON.parse(payloadEl.textContent || '{}');
+            } catch (err) {
+                console.error('Error parsing chartDataPayload:', err);
+                return;
+            }
+
+            if (!chartData || !chartData.candles || chartData.candles.length === 0) {
+                mainContainer.innerHTML = `
+                    <div class="d-flex flex-column justify-content-center align-items-center h-100 text-muted">
+                        <div class="fs-1 mb-2">📊</div>
+                        <h6 class="text-light fw-bold">Belum Ada Data Grafik yang Tersedia</h6>
+                        <p class="small mb-0">Silakan lakukan sinkronisasi data candle untuk instrumen ini.</p>
+                    </div>
+                `;
+                if (oscContainer) oscContainer.style.display = 'none';
+                return;
+            }
+
+            if (typeof LightweightCharts === 'undefined') {
+                mainContainer.innerHTML = `
+                    <div class="d-flex flex-column justify-content-center align-items-center h-100 text-warning">
+                        <div class="fs-1 mb-2">⚠️</div>
+                        <h6 class="text-light fw-bold">Pustaka TradingView Sedang Dimuat</h6>
+                        <p class="small mb-0">Pastikan koneksi internet aktif atau periksa file static lokal.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const decimals = chartData.decimals !== undefined ? chartData.decimals : 4;
+            const activeTf = "{{ active_tf|default:'1d' }}";
+
+            // Inisialisasi Grafik Utama
+            const mainChart = LightweightCharts.createChart(mainContainer, {
+                width: mainContainer.clientWidth || 800,
+                height: 440,
+                layout: {
+                    background: { type: 'solid', color: '#131722' },
+                    textColor: '#94a3b8',
+                    fontSize: 12,
+                    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+                    horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: {
+                        color: 'rgba(148, 163, 184, 0.5)',
+                        width: 1,
+                        style: LightweightCharts.LineStyle.Dashed,
+                        labelBackgroundColor: '#1e293b',
+                    },
+                    horzLine: {
+                        color: 'rgba(148, 163, 184, 0.5)',
+                        width: 1,
+                        style: LightweightCharts.LineStyle.Dashed,
+                        labelBackgroundColor: '#1e293b',
+                    },
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    scaleMargins: {
+                        top: 0.08,
+                        bottom: 0.18,
+                    },
+                },
+                timeScale: {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    timeVisible: true,
+                    secondsVisible: (activeTf === '1m'),
+                },
+                handleScroll: {
+                    mouseWheel: true,
+                    pressedMouseMove: true,
+                    horzTouchDrag: true,
+                    vertTouchDrag: true,
+                },
+                handleScale: {
+                    axisPressedMouseMove: true,
+                    mouseWheel: true,
+                    pinch: true,
+                },
+            });
+
+            // 1. Candlestick Series
+            const candleSeries = mainChart.addCandlestickSeries({
+                upColor: '#10b981',
+                downColor: '#ef4444',
+                borderVisible: false,
+                wickUpColor: '#10b981',
+                wickDownColor: '#ef4444',
+            });
+            candleSeries.setData(chartData.candles || []);
+
+            // 2. Volume Histogram Overlay di Bawah
+            const volumeSeries = mainChart.addHistogramSeries({
+                priceFormat: { type: 'volume' },
+                priceScaleId: '', // overlay di kanvas utama
+                scaleMargins: {
+                    top: 0.82,
+                    bottom: 0,
+                },
+            });
+            volumeSeries.setData(chartData.volume || []);
+
+            // 3. Garis EMA 9 & EMA 21
+            const ema9Series = mainChart.addLineSeries({
+                color: '#38bdf8',
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: true,
+                crosshairMarkerVisible: true,
+                title: 'EMA 9',
+            });
+            ema9Series.setData(chartData.ema_9 || []);
+
+            const ema21Series = mainChart.addLineSeries({
+                color: '#f59e0b',
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: true,
+                crosshairMarkerVisible: true,
+                title: 'EMA 21',
+            });
+            ema21Series.setData(chartData.ema_21 || []);
+
+            // 4. Pita Volatilitas ATR (Upper & Lower Band)
+            const atrUpperSeries = mainChart.addLineSeries({
+                color: 'rgba(168, 85, 247, 0.75)',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                title: 'ATR Upper',
+            });
+            atrUpperSeries.setData(chartData.atr_upper || []);
+
+            const atrLowerSeries = mainChart.addLineSeries({
+                color: 'rgba(168, 85, 247, 0.75)',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                title: 'ATR Lower',
+            });
+            atrLowerSeries.setData(chartData.atr_lower || []);
+
+            // 5. Penanda Visual Otomatis (Markers BUY / SELL)
+            const markers = (chartData.markers || []).slice().sort((a, b) => a.time - b.time);
+            candleSeries.setMarkers(markers);
+
+            // 6. Inisialisasi Panel Osilator Bawah (RSI / MACD)
+            const oscChart = LightweightCharts.createChart(oscContainer, {
+                width: oscContainer.clientWidth || 800,
+                height: 160,
+                layout: {
+                    background: { type: 'solid', color: '#131722' },
+                    textColor: '#94a3b8',
+                    fontSize: 11,
+                    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+                    horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: {
+                        color: 'rgba(148, 163, 184, 0.45)',
+                        width: 1,
+                        style: LightweightCharts.LineStyle.Dashed,
+                        labelBackgroundColor: '#1e293b',
+                    },
+                    horzLine: {
+                        color: 'rgba(148, 163, 184, 0.45)',
+                        width: 1,
+                        style: LightweightCharts.LineStyle.Dashed,
+                        labelBackgroundColor: '#1e293b',
+                    },
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    scaleMargins: { top: 0.1, bottom: 0.1 },
+                },
+                timeScale: {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    timeVisible: true,
+                    secondsVisible: (activeTf === '1m'),
+                    visible: false, // Disembunyikan agar selaras dengan skala waktu utama di atasnya
+                },
+                handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
+                handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+            });
+
+            // Deret RSI
+            const rsiSeries = oscChart.addLineSeries({
+                color: '#818cf8',
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: true,
+                title: 'RSI 14',
+            });
+            rsiSeries.setData(chartData.rsi || []);
+            rsiSeries.createPriceLine({
+                price: 70,
+                color: 'rgba(239, 68, 68, 0.75)',
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                lineWidth: 1,
+                axisLabelVisible: true,
+                title: 'OB 70',
+            });
+            rsiSeries.createPriceLine({
+                price: 50,
+                color: 'rgba(148, 163, 184, 0.35)',
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                lineWidth: 1,
+                axisLabelVisible: false,
+                title: '50',
+            });
+            rsiSeries.createPriceLine({
+                price: 30,
+                color: 'rgba(16, 185, 129, 0.75)',
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                lineWidth: 1,
+                axisLabelVisible: true,
+                title: 'OS 30',
+            });
+
+            // Deret MACD
+            const macdHistSeries = oscChart.addHistogramSeries({
+                priceLineVisible: false,
+                lastValueVisible: false,
+                title: 'Hist',
+            });
+            macdHistSeries.setData(chartData.macd_hist || []);
+
+            const macdLineSeries = oscChart.addLineSeries({
+                color: '#38bdf8',
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: true,
+                title: 'MACD',
+            });
+            macdLineSeries.setData(chartData.macd || []);
+
+            const macdSignalSeries = oscChart.addLineSeries({
+                color: '#f59e0b',
+                lineWidth: 1.5,
+                priceLineVisible: false,
+                lastValueVisible: true,
+                title: 'Signal',
+            });
+            macdSignalSeries.setData(chartData.macd_signal || []);
+            macdLineSeries.createPriceLine({
+                price: 0,
+                color: 'rgba(148, 163, 184, 0.45)',
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                lineWidth: 1,
+                axisLabelVisible: false,
+                title: '0',
+            });
+
+            // Sembunyikan MACD di awal (default mode = RSI)
+            macdLineSeries.applyOptions({ visible: false });
+            macdSignalSeries.applyOptions({ visible: false });
+            macdHistSeries.applyOptions({ visible: false });
+
+            // 7. Sinkronisasi Rentang Skala Waktu (Logical Range Synchronization)
+            let isSyncingRange = false;
+            mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                if (isSyncingRange || !range) return;
+                isSyncingRange = true;
+                oscChart.timeScale().setVisibleLogicalRange(range);
+                isSyncingRange = false;
+            });
+            oscChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                if (isSyncingRange || !range) return;
+                isSyncingRange = true;
+                mainChart.timeScale().setVisibleLogicalRange(range);
+                isSyncingRange = false;
+            });
+
+            // Pasang tampilan lilin optimal
+            mainChart.timeScale().fitContent();
+            oscChart.timeScale().fitContent();
+
+            // 8. Toolbar Toggles & Switchers
+            let ema9On = true;
+            let ema21On = true;
+            let atrOn = true;
+            let volOn = true;
+            let markersOn = true;
+            let oscMode = 'RSI'; // 'RSI', 'MACD', 'NONE'
+
+            const btnToggleEma9 = document.getElementById('btnToggleEma9');
+            const btnToggleEma21 = document.getElementById('btnToggleEma21');
+            const btnToggleAtr = document.getElementById('btnToggleAtr');
+            const btnToggleVol = document.getElementById('btnToggleVol');
+            const btnToggleMarkers = document.getElementById('btnToggleMarkers');
+
+            if (btnToggleEma9) {
+                btnToggleEma9.addEventListener('click', function() {
+                    ema9On = !ema9On;
+                    ema9Series.applyOptions({ visible: ema9On });
+                    this.classList.toggle('active', ema9On);
+                    const el = document.getElementById('legEma9Span');
+                    if (el) el.style.display = ema9On ? 'inline' : 'none';
+                });
+            }
+
+            if (btnToggleEma21) {
+                btnToggleEma21.addEventListener('click', function() {
+                    ema21On = !ema21On;
+                    ema21Series.applyOptions({ visible: ema21On });
+                    this.classList.toggle('active', ema21On);
+                    const el = document.getElementById('legEma21Span');
+                    if (el) el.style.display = ema21On ? 'inline' : 'none';
+                });
+            }
+
+            if (btnToggleAtr) {
+                btnToggleAtr.addEventListener('click', function() {
+                    atrOn = !atrOn;
+                    atrUpperSeries.applyOptions({ visible: atrOn });
+                    atrLowerSeries.applyOptions({ visible: atrOn });
+                    this.classList.toggle('active', atrOn);
+                    const el = document.getElementById('legAtrSpan');
+                    if (el) el.style.display = atrOn ? 'inline' : 'none';
+                });
+            }
+
+            if (btnToggleVol) {
+                btnToggleVol.addEventListener('click', function() {
+                    volOn = !volOn;
+                    volumeSeries.applyOptions({ visible: volOn });
+                    this.classList.toggle('active', volOn);
+                });
+            }
+
+            if (btnToggleMarkers) {
+                btnToggleMarkers.addEventListener('click', function() {
+                    markersOn = !markersOn;
+                    candleSeries.setMarkers(markersOn ? markers : []);
+                    this.classList.toggle('active', markersOn);
+                });
+            }
+
+            // Switcher Panel Osilator
+            const btnOscRsi = document.getElementById('btnOscRsi');
+            const btnOscMacd = document.getElementById('btnOscMacd');
+            const btnOscNone = document.getElementById('btnOscNone');
+            const legOscSpan = document.getElementById('legOscSpan');
+
+            function applyOscMode(mode) {
+                oscMode = mode;
+                if (mode === 'RSI') {
+                    oscContainer.style.display = 'block';
+                    mainContainer.style.height = '440px';
+                    rsiSeries.applyOptions({ visible: true });
+                    macdLineSeries.applyOptions({ visible: false });
+                    macdSignalSeries.applyOptions({ visible: false });
+                    macdHistSeries.applyOptions({ visible: false });
+
+                    if (btnOscRsi) btnOscRsi.className = 'btn btn-sm btn-primary active py-0 px-2';
+                    if (btnOscMacd) btnOscMacd.className = 'btn btn-sm btn-dark text-light border-secondary py-0 px-2';
+                    if (btnOscNone) btnOscNone.className = 'btn btn-sm btn-dark text-muted border-secondary py-0 px-2';
+                    if (legOscSpan) {
+                        legOscSpan.style.display = 'inline';
+                        legOscSpan.innerHTML = 'RSI: <strong id="legOscVal">-</strong>';
+                        legOscSpan.style.color = '#818cf8';
+                    }
+                } else if (mode === 'MACD') {
+                    oscContainer.style.display = 'block';
+                    mainContainer.style.height = '440px';
+                    rsiSeries.applyOptions({ visible: false });
+                    macdLineSeries.applyOptions({ visible: true });
+                    macdSignalSeries.applyOptions({ visible: true });
+                    macdHistSeries.applyOptions({ visible: true });
+
+                    if (btnOscRsi) btnOscRsi.className = 'btn btn-sm btn-dark text-light border-secondary py-0 px-2';
+                    if (btnOscMacd) btnOscMacd.className = 'btn btn-sm btn-primary active py-0 px-2';
+                    if (btnOscNone) btnOscNone.className = 'btn btn-sm btn-dark text-muted border-secondary py-0 px-2';
+                    if (legOscSpan) {
+                        legOscSpan.style.display = 'inline';
+                        legOscSpan.innerHTML = 'MACD: <strong id="legOscVal">-</strong>';
+                        legOscSpan.style.color = '#38bdf8';
+                    }
+                } else {
+                    oscContainer.style.display = 'none';
+                    mainContainer.style.height = '560px';
+
+                    if (btnOscRsi) btnOscRsi.className = 'btn btn-sm btn-dark text-light border-secondary py-0 px-2';
+                    if (btnOscMacd) btnOscMacd.className = 'btn btn-sm btn-dark text-light border-secondary py-0 px-2';
+                    if (btnOscNone) btnOscNone.className = 'btn btn-sm btn-primary active py-0 px-2';
+                    if (legOscSpan) legOscSpan.style.display = 'none';
+                }
+
+                mainChart.resize(mainContainer.clientWidth, mainContainer.clientHeight);
+                if (mode !== 'NONE') {
+                    oscChart.resize(oscContainer.clientWidth, 160);
+                }
+                showLatestLegend();
+            }
+
+            if (btnOscRsi) btnOscRsi.addEventListener('click', () => applyOscMode('RSI'));
+            if (btnOscMacd) btnOscMacd.addEventListener('click', () => applyOscMode('MACD'));
+            if (btnOscNone) btnOscNone.addEventListener('click', () => applyOscMode('NONE'));
+
+            // Reset Zoom
+            const btnResetZoom = document.getElementById('btnResetZoom');
+            if (btnResetZoom) {
+                btnResetZoom.addEventListener('click', function() {
+                    mainChart.timeScale().fitContent();
+                    oscChart.timeScale().fitContent();
+                });
+            }
+
+            // Layar Penuh (Fullscreen)
+            const btnFullscreen = document.getElementById('btnFullscreen');
+            const tvChartCard = document.getElementById('tvChartCard');
+            if (btnFullscreen && tvChartCard) {
+                btnFullscreen.addEventListener('click', function() {
+                    if (!document.fullscreenElement) {
+                        tvChartCard.requestFullscreen().catch(e => console.error('Gagal fullscreen:', e));
+                    } else {
+                        document.exitFullscreen().catch(e => console.error('Gagal keluar fullscreen:', e));
+                    }
+                });
+            }
+
+            // 9. Live Crosshair Hover Legend
+            const legTime = document.getElementById('legTime');
+            const legOpen = document.getElementById('legOpen');
+            const legHigh = document.getElementById('legHigh');
+            const legLow = document.getElementById('legLow');
+            const legClose = document.getElementById('legClose');
+            const legChange = document.getElementById('legChange');
+            const legVol = document.getElementById('legVol');
+            const legEma9 = document.getElementById('legEma9');
+            const legEma21 = document.getElementById('legEma21');
+            const legAtr = document.getElementById('legAtr');
+
+            function fmt(val, d = decimals) {
+                return (val !== undefined && val !== null && !isNaN(val)) ? Number(val).toFixed(d) : '-';
+            }
+
+            function updateLegend(c, e9, e21, atrUp, atrLow, vol, oscVal, timeStr) {
+                if (!c) return;
+                if (legTime) legTime.textContent = timeStr || '';
+                if (legOpen) legOpen.textContent = fmt(c.open);
+                if (legHigh) legHigh.textContent = fmt(c.high);
+                if (legLow) legLow.textContent = fmt(c.low);
+                if (legClose) legClose.textContent = fmt(c.close);
+
+                const diff = c.close - c.open;
+                const pct = c.open > 0 ? ((diff / c.open) * 100) : 0;
+                if (legChange) {
+                    legChange.textContent = `${diff >= 0 ? '+' : ''}${fmt(diff)} (${diff >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+                    legChange.className = diff >= 0 ? 'text-success fw-bold' : 'text-danger fw-bold';
+                }
+
+                if (legVol) legVol.textContent = (vol !== undefined && vol !== null) ? Number(vol).toLocaleString() : '-';
+                if (legEma9) legEma9.textContent = fmt(e9);
+                if (legEma21) legEma21.textContent = fmt(e21);
+                if (legAtr) {
+                    legAtr.textContent = (atrUp !== undefined && atrLow !== undefined && atrUp !== null && atrLow !== null)
+                        ? `[${fmt(atrLow)} - ${fmt(atrUp)}]` : '-';
+                }
+
+                const legOscVal = document.getElementById('legOscVal');
+                if (legOscVal) legOscVal.textContent = fmt(oscVal, 2);
+            }
+
+            function findLast(arr) {
+                return (arr && arr.length) ? arr[arr.length - 1] : null;
+            }
+
+            const lastC = findLast(chartData.candles);
+            const lastE9 = findLast(chartData.ema_9);
+            const lastE21 = findLast(chartData.ema_21);
+            const lastAtrUp = findLast(chartData.atr_upper);
+            const lastAtrLow = findLast(chartData.atr_lower);
+            const lastVol = findLast(chartData.volume);
+            const lastRsi = findLast(chartData.rsi);
+            const lastMacd = findLast(chartData.macd);
+
+            function showLatestLegend() {
+                if (!lastC) return;
+                const d = new Date(lastC.time * 1000);
+                const timeStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                const currentOsc = (oscMode === 'RSI') ? (lastRsi ? lastRsi.value : null) : (lastMacd ? lastMacd.value : null);
+                updateLegend(
+                    lastC,
+                    lastE9 ? lastE9.value : null,
+                    lastE21 ? lastE21.value : null,
+                    lastAtrUp ? lastAtrUp.value : null,
+                    lastAtrLow ? lastAtrLow.value : null,
+                    lastVol ? lastVol.value : null,
+                    currentOsc,
+                    timeStr
+                );
+            }
+
+            mainChart.subscribeCrosshairMove(param => {
+                if (!param.point || !param.time) {
+                    showLatestLegend();
+                    return;
+                }
+
+                const sd = param.seriesData;
+                const c = (sd && typeof sd.get === 'function') ? sd.get(candleSeries) : null;
+                const e9 = (sd && typeof sd.get === 'function') ? sd.get(ema9Series) : null;
+                const e21 = (sd && typeof sd.get === 'function') ? sd.get(ema21Series) : null;
+                const atrUp = (sd && typeof sd.get === 'function') ? sd.get(atrUpperSeries) : null;
+                const atrLow = (sd && typeof sd.get === 'function') ? sd.get(atrLowerSeries) : null;
+                const vol = (sd && typeof sd.get === 'function') ? sd.get(volumeSeries) : null;
+                const osc = (sd && typeof sd.get === 'function') ? ((oscMode === 'RSI') ? sd.get(rsiSeries) : sd.get(macdLineSeries)) : null;
+
+                const d = new Date(param.time * 1000);
+                const timeStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+                updateLegend(
+                    c,
+                    e9 ? e9.value : null,
+                    e21 ? e21.value : null,
+                    atrUp ? atrUp.value : null,
+                    atrLow ? atrLow.value : null,
+                    vol ? vol.value : null,
+                    osc ? osc.value : null,
+                    timeStr
+                );
+            });
+
+            // Tampilkan data lilin terkini di awal
+            showLatestLegend();
+
+            // 10. Auto-Resize Responsif
+            const ro = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    const w = entry.contentRect.width;
+                    if (w > 0) {
+                        mainChart.applyOptions({ width: w });
+                        oscChart.applyOptions({ width: w });
+                    }
+                }
+            });
+            ro.observe(mainContainer);
+
+            window.addEventListener('resize', () => {
+                if (mainContainer) mainChart.applyOptions({ width: mainContainer.clientWidth });
+                if (oscContainer) oscChart.applyOptions({ width: oscContainer.clientWidth });
+            });
         })();
     </script>
 </body>
