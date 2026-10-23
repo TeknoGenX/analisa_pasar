@@ -1,3 +1,4 @@
+#paper_trading/views.py
 import json
 import logging
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -203,7 +204,10 @@ def account_status_api(request):
     total_floating = 0.0
 
     for t in open_trades_qs:
-        last_candle = t.instrument.price_data.filter(timeframe=t.timeframe).order_by('-timestamp').first()
+        last_candle = t.instrument.price_data.filter(
+            timeframe=t.timeframe,
+            data_source=t.instrument.data_source,
+        ).order_by('-timestamp').first()
         curr_p = last_candle.close_price if last_candle else t.entry_price
         float_pnl = t.calculate_floating_pnl(curr_p)
         float_pct = round((float_pnl / t.amount) * 100, 2) if t.amount > 0 else 0.0

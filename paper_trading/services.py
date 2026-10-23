@@ -1,3 +1,4 @@
+#paper_trading/services.py
 import logging
 from django.db import transaction
 from django.utils import timezone
@@ -67,7 +68,11 @@ def open_paper_trade(
     if entry_price is None or entry_price <= 0:
         last_candle = (
             MarketData.objects
-            .filter(instrument=instrument, timeframe=timeframe)
+            .filter(
+                instrument=instrument,
+                timeframe=timeframe,
+                data_source=instrument.data_source,
+            )
             .order_by('-timestamp')
             .first()
         )
@@ -132,7 +137,11 @@ def close_paper_trade(trade, exit_price=None, reason='MANUAL'):
     if exit_price is None or exit_price <= 0:
         last_candle = (
             MarketData.objects
-            .filter(instrument=trade.instrument, timeframe=trade.timeframe)
+            .filter(
+                instrument=trade.instrument,
+                timeframe=trade.timeframe,
+                data_source=trade.instrument.data_source,
+            )
             .order_by('-timestamp')
             .first()
         )
@@ -189,7 +198,11 @@ def evaluate_open_positions():
     for trade in open_trades:
         last_candle = (
             MarketData.objects
-            .filter(instrument=trade.instrument, timeframe=trade.timeframe)
+            .filter(
+                instrument=trade.instrument,
+                timeframe=trade.timeframe,
+                data_source=trade.instrument.data_source,
+            )
             .order_by('-timestamp')
             .first()
         )

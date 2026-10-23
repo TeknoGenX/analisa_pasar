@@ -1,3 +1,4 @@
+#data_ingestion/management/commands/seed_instruments.py
 from django.core.management.base import BaseCommand
 from data_ingestion.models import MarketInstrument
 

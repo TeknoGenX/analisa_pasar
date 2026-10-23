@@ -1,3 +1,4 @@
+#data_ingestion/management/commands/fetch_market_data.py
 from django.core.management.base import BaseCommand
 from data_ingestion.tasks import fetch_market_prices, TIMEFRAME_CONFIG
 

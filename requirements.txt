@@ -1,0 +1,13 @@
+asgiref
+dj_database_url
+Django
+# MetaTrader5==5.0.6231
+pandas
+pandas_ta
+python-dotenv
+redis
+Requests
+ta
+websockets
+yfinance
+celery

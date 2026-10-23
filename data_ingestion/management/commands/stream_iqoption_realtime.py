@@ -1,3 +1,4 @@
+#data_ingestion/management/commands/stream_iqoption_realtime.py
 import asyncio
 import os
 import logging
@@ -173,6 +174,7 @@ class Command(BaseCommand):
             await sync_to_async(MarketData.objects.update_or_create)(
                 instrument=inst,
                 timeframe=timeframe,
+                data_source='IQOPTION',
                 timestamp=c_time,
                 defaults={
                     'open_price': open_p,

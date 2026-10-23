@@ -1,3 +1,4 @@
+#paper_trading/apps.py
 from django.apps import AppConfig
 
 

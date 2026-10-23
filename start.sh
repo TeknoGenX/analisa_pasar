@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Skrip Otomatisasi Eksekutor Mesin Analisa Pasar
+# Skrip Otomatisasi Eksekutor Mesin Analisa Pasar (Kali Linux)
 # Menjalankan: Django Runserver, Celery Worker, Celery Beat, dan Penarikan Data
 # ==============================================================================
 
@@ -8,7 +8,7 @@ PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$PROJECT_DIR" || exit 1
 
 echo "=================================================================="
-echo "  🚀 MEMULAI OTOMASI SISTEM ANALISA PASAR (PARROT OS)"
+echo "  🚀 MEMULAI OTOMASI SISTEM ANALISA PASAR (KALI LINUX)"
 echo "=================================================================="
 
 # 1. Cek Virtual Environment
@@ -24,29 +24,29 @@ if ! redis-cli ping > /dev/null 2>&1; then
     sudo systemctl start redis > /dev/null 2>&1 || sudo service redis-server start > /dev/null 2>&1 || redis-server --daemonize yes > /dev/null 2>&1
     sleep 1
     if ! redis-cli ping > /dev/null 2>&1; then
-        echo "❌ Gagal menghubungkan ke Redis. Silakan jalankan 'sudo service redis-server start' terlebih dahulu."
+        echo "❌ Gagal menghubungkan ke Redis. Silakan jalankan 'sudo systemctl start redis' terlebih dahulu."
         exit 1
     fi
 fi
 echo "✅ Redis Server aktif dan siap."
 
-# 3. Fungsi Peluncur Terminal
+# 3. Fungsi Peluncur Terminal (Disesuaikan untuk Kali Linux / XFCE / QTerminal / dll)
 launch_terminal() {
     local TITLE="$1"
     local CMD="$2"
 
     local SCRIPT_CONTENT="cd '$PROJECT_DIR' && source '$PROJECT_DIR/venv/bin/activate' && echo -e '\033[1;32m=====================================================\033[0m' && echo -e '\033[1;36m  $TITLE\033[0m' && echo -e '\033[1;32m=====================================================\033[0m' && $CMD; exec bash"
 
-    if command -v konsole >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
-        konsole --separate -p tabtitle="$TITLE" -e bash -c "$SCRIPT_CONTENT" &
-    elif command -v mate-terminal >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
-        mate-terminal --title="$TITLE" -e "bash -c \"$SCRIPT_CONTENT\"" &
+    if command -v qterminal >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
+        qterminal -e "bash -c \"$SCRIPT_CONTENT\"" &
     elif command -v xfce4-terminal >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
         xfce4-terminal --title="$TITLE" -e "bash -c \"$SCRIPT_CONTENT\"" &
+    elif command -v terminator >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
+        terminator -T "$TITLE" -x bash -c "$SCRIPT_CONTENT" &
+    elif command -v konsole >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
+        konsole --separate -p tabtitle="$TITLE" -e bash -c "$SCRIPT_CONTENT" &
     elif command -v gnome-terminal >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
         gnome-terminal --title="$TITLE" -- bash -c "$SCRIPT_CONTENT" &
-    elif command -v x-terminal-emulator >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
-        x-terminal-emulator -T "$TITLE" -e bash -c "$SCRIPT_CONTENT" &
     elif command -v xterm >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
         xterm -T "$TITLE" -hold -e bash -c "$SCRIPT_CONTENT" &
     else
@@ -79,7 +79,7 @@ echo "   3. Celery Beat: Menjadwalkan penarikan data berkala tiap jam"
 echo "=================================================================="
 echo ""
 
-# 7. Kirim Pemicu Penarikan Data Instan Sekarang Juga (1m, 5m, 15m, 30m, 1h, 1d, 1wk)
+# 7. Kirim Pemicu Penarikan Data Instan Sekarang Juga
 read -r -p "Apakah Anda ingin memicu penarikan seluruh data pasar sekarang (1m, 5m, 15m, 30m, 1h, 1d, 1wk)? (y/n): " trigger_choice
 if [[ "$trigger_choice" =~ ^[Yy]$ ]]; then
     echo "📡 Mengirim sinyal penarikan data lengkap ke Celery Worker..."
@@ -88,4 +88,4 @@ if [[ "$trigger_choice" =~ ^[Yy]$ ]]; then
 fi
 
 echo ""
-echo "💡 Untuk menghentikan semua mesin, jalankan: ./stop.sh"
+echo "💡 Untuk menghentikan semua mesin, pastikan menutup tab terminal atau jalankan perintah kill yang sesuai."

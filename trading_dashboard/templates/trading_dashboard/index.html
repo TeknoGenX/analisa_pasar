@@ -1,3 +1,4 @@
+<!-- trading_dashboard/templates/trading_dashboard/index.html -->
 {% load static %}
 <!DOCTYPE html>
 <html lang="id">
@@ -33,6 +34,7 @@
         .table th { font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px; background-color: #111827 !important; color: #94a3b8; border-bottom: 1px solid #273548; }
         .table td { border-color: #273548; vertical-align: middle; }
         .extra-small { font-size: 0.75rem; }
+        .fw-black { font-weight: 800; }
         
         /* Badge & Hero Styling */
         .badge-prediction-up { background: linear-gradient(135deg, #059669, #10b981); color: #fff; }
@@ -102,6 +104,15 @@
                 <div>
                     <strong>Data Berhasil Disinkronkan!</strong> Sistem telah memperbarui candle dan menganalisa pergerakan timeframe <strong>{{ active_tf }}</strong>{% if selected_instrument %} untuk instrumen <strong>{{ selected_instrument.symbol }}</strong>{% endif %}.
                 </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+        {% if source_error %}
+        <div class="alert alert-warning alert-dismissible fade show shadow-sm mb-4 border-0 bg-warning bg-opacity-25 text-warning" role="alert">
+            <div class="d-flex align-items-center">
+                <span class="fs-4 me-2">⚠️</span>
+                <div>{{ source_error }}</div>
             </div>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
@@ -184,7 +195,7 @@
                 </button>
 
                 {% if selected_instrument %}
-                <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-warning btn-sm fw-semibold shadow-sm text-dark" title="Tarik data instan ({% if selected_instrument.data_source == 'IQOPTION' %}IQ Option Traderoom{% else %}Yahoo Finance{% endif %}) untuk instrumen ini">
+                <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}&source={{ selected_data_source }}" class="btn btn-warning btn-sm fw-semibold shadow-sm text-dark" title="Tarik data instan dari {% if selected_data_source == 'IQOPTION' %}IQ Option Traderoom{% else %}Yahoo Finance{% endif %} untuk instrumen ini">
                     ⚡ Tarik Data {{ selected_instrument.symbol }} (1s)
                 </a>
                 <a href="{% url 'trading_dashboard:export_csv' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-success btn-sm fw-semibold shadow-sm">
@@ -216,6 +227,7 @@
                 <div class="col-lg-5 col-md-12">
                     <form method="get" action="" class="d-flex align-items-center gap-2">
                         <input type="hidden" name="tf" value="{{ active_tf }}">
+                        {% if selected_instrument %}<input type="hidden" name="source" value="{{ selected_data_source }}">{% endif %}
                         <label for="marketSelect" class="form-label mb-0 fw-bold text-light small text-nowrap">
                             🎯 Pilih 1 Pasar:
                         </label>
@@ -240,7 +252,7 @@
                     <div class="d-flex flex-wrap justify-content-lg-end align-items-center gap-2">
                         <span class="small fw-bold text-light">🕒 Timeframe:</span>
                         {% for code, label in timeframes %}
-                        <a href="?{% if selected_instrument %}symbol={{ selected_instrument.symbol }}&{% elif active_category %}category={{ active_category }}&{% endif %}tf={{ code }}" 
+                        <a href="?{% if selected_instrument %}symbol={{ selected_instrument.symbol }}&source={{ selected_data_source }}&{% elif active_category %}category={{ active_category }}&{% endif %}tf={{ code }}"
                            class="btn btn-sm {% if active_tf == code %}btn-primary px-3 fw-bold{% else %}btn-outline-secondary text-light{% endif %} position-relative">
                             {{ label }}
                             {% if code == '1m' or code == '5m' %}
@@ -257,6 +269,27 @@
                 </div>
             </div>
 
+            {% if selected_instrument %}
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-3 pt-3 border-top border-secondary">
+                <form method="get" action="" class="d-flex align-items-center gap-2">
+                    <input type="hidden" name="symbol" value="{{ selected_instrument.symbol }}">
+                    <input type="hidden" name="tf" value="{{ active_tf }}">
+                    <label for="dataSourceSelect" class="form-label mb-0 fw-bold text-light small">
+                        🔌 Sumber Data Prediksi:
+                    </label>
+                    <select name="source" id="dataSourceSelect" class="form-select form-select-sm fw-semibold w-auto" onchange="this.form.submit()">
+                        {% for source_code, source_label in data_sources %}
+                        <option value="{{ source_code }}" {% if selected_data_source == source_code %}selected{% endif %}{% if is_otc_instrument and source_code == 'YAHOO' %} disabled{% endif %}>
+                            {{ source_label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <noscript><button type="submit" class="btn btn-primary btn-sm">Terapkan</button></noscript>
+                </form>
+                <span class="small text-muted">Prediksi memakai candle dan indikator dari sumber yang dipilih.</span>
+            </div>
+            {% endif %}
+
             <!-- Pintasan Cepat Pasar Populer (Quick Pills) -->
             <div class="d-flex flex-wrap align-items-center gap-2 mt-3 pt-2 border-top border-secondary">
                 <span class="extra-small fw-bold text-muted text-uppercase me-1">Pintasan Cepat:</span>
@@ -264,7 +297,7 @@
                     🌍 Semua Pasar
                 </a>
                 {% for sym, label, cat in popular_symbols %}
-                <a href="?symbol={{ sym }}&tf={{ active_tf }}" 
+                <a href="?symbol={{ sym }}&tf={{ active_tf }}{% if selected_instrument %}&source={{ selected_data_source }}{% endif %}"
                    class="quick-pill {% if current_symbol == sym %}bg-primary text-white fw-bold shadow-sm{% else %}bg-dark text-light border border-secondary{% endif %}">
                     {{ label }}
                 </a>
@@ -285,7 +318,7 @@
                     <p class="text-muted mb-3">
                         Tersedia <strong>{{ prediction_data.rows_count|default:"0" }}</strong> candle untuk kerangka waktu <strong>{{ active_tf }}</strong> di database lokal. Diperlukan minimal 15 candle untuk mengaktifkan indikator teknikal (EMA, RSI, MACD) dan mesin prediksi.
                     </p>
-                    <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}" class="btn btn-primary px-4 py-2 fw-bold shadow-sm">
+                    <a href="{% url 'trading_dashboard:sync_data' %}?symbol={{ selected_instrument.symbol }}&tf={{ active_tf }}&source={{ selected_data_source }}" class="btn btn-primary px-4 py-2 fw-bold shadow-sm">
                         ⚡ Tarik Data {{ active_tf }} untuk {{ selected_instrument.symbol }} Sekarang (Cepat)
                     </a>
                 </div>
@@ -303,6 +336,9 @@
                                     </span>
                                     <span class="badge bg-black bg-opacity-25 px-3 py-1">
                                         Timeframe: {{ active_tf }} (1 Bar Lilin)
+                                    </span>
+                                    <span class="badge bg-info bg-opacity-25 text-info px-3 py-1">
+                                        {% if selected_data_source == 'IQOPTION' %}IQ Option Traderoom{% else %}Yahoo Finance{% endif %}
                                     </span>
                                     <span class="badge bg-white bg-opacity-25 px-3 py-1 text-dark fw-bold">
                                         Keyakinan: {{ prediction_data.prediction.confidence }}
@@ -527,7 +563,7 @@
                                 <span class="badge {% if auto_setting.is_enabled %}bg-success{% else %}bg-secondary{% endif %} me-1">
                                     {% if auto_setting.is_enabled %}🤖 Auto-Trade Aktif{% else %}⚪ Auto-Trade Nonaktif{% endif %}
                                 </span>
-                                <span>Bot mengeksekusi otomatis saat sinyal $\ge {{ auto_setting.min_probability }}%$.</span>
+                                <span>Bot mengeksekusi otomatis saat sinyal ≥ {{ auto_setting.min_probability }}%.</span>
                             </div>
                             <button type="button" class="btn btn-link btn-sm p-0 extra-small text-info text-decoration-none" data-bs-toggle="modal" data-bs-target="#paperTradingModal">
                                 Kelola Bot ⚙️

@@ -1,3 +1,4 @@
+# data_ingestion/iqoption/service.py
 """
 Layanan Sinkronisasi Data IQ Option ke Basis Data Django SQLite3 & Redis Cache.
 Menyimpan riwayat candle ke model MarketData menggunakan bulk upsert berkecepatan tinggi.
@@ -5,69 +6,99 @@ Menyimpan riwayat candle ke model MarketData menggunakan bulk upsert berkecepata
 
 import logging
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
 from django.core.cache import cache
-from data_ingestion.models import MarketInstrument, MarketData
-from .constants import (
-    ACTIVES,
-    ACTIVES_REVERSE,
-    TIMEFRAME_TO_SECONDS,
-    POPULAR_IQOPTION_INSTRUMENTS,
-    resolve_active_id,
-)
+from django.utils import timezone as django_timezone
+
+from data_ingestion.models import MarketData, MarketInstrument
 from .client import IQOptionClient
+from .constants import POPULAR_IQOPTION_INSTRUMENTS, resolve_active_id
 
 logger = logging.getLogger(__name__)
 
+# --- Konstanta Pemetaan ---
+CRYPTO_KEYWORDS = ('BTC', 'ETH', 'LTC', 'XRP', 'DASH', 'EOS', 'TRX', 'CRYPTO')
+COMMODITY_KEYWORDS = ('XAU', 'GOLD', 'XAG', 'SILVER', 'OIL', 'BRENT', 'WTI')
+STOCK_KEYWORDS = ('AAPL', 'APPLE', 'TSLA', 'TESLA', 'GOOG', 'AMZN', 'MSFT', 'FB', 'META')
+COMMODITY_SYMBOL_MAP = {'XAUUSD': 'GC=F', 'XAGUSD': 'SI=F'}
 
-def determine_category(symbol_name):
-    """Menentukan kategori instrumen berdasarkan nama simbol"""
+
+# --- Fungsi Bantuan Internal ---
+def determine_category(symbol_name: str) -> str:
+    """Menentukan kategori instrumen berdasarkan nama simbol."""
     s = symbol_name.upper()
-    if any(c in s for c in ['BTC', 'ETH', 'LTC', 'XRP', 'DASH', 'EOS', 'TRX', 'CRYPTO']):
+    if any(c in s for c in CRYPTO_KEYWORDS):
         return 'CRYPTO'
-    elif any(comm in s for comm in ['XAU', 'GOLD', 'XAG', 'SILVER', 'OIL', 'BRENT', 'WTI']):
+    if any(comm in s for comm in COMMODITY_KEYWORDS):
         return 'COMMODITY'
-    elif any(stk in s for stk in ['AAPL', 'APPLE', 'TSLA', 'TESLA', 'GOOG', 'AMZN', 'MSFT', 'FB', 'META']):
+    if any(stk in s for stk in STOCK_KEYWORDS):
         return 'STOCK'
     return 'FOREX'
 
 
-def get_or_create_iqoption_instrument(symbol_query, category=None):
+def _parse_candle_timestamp(candle: Dict[str, Any]) -> datetime:
+    """Mengekstrak dan memastikan timestamp candle memiliki informasi zona waktu."""
+    ts = candle.get('timestamp')
+    if not ts:
+        from_ts = candle.get('from', 0)
+        ts = datetime.fromtimestamp(from_ts, tz=timezone.utc)
+
+    if django_timezone.is_naive(ts):
+        ts = django_timezone.make_aware(ts)
+
+    return ts
+
+
+def _clear_instrument_cache(instrument: MarketInstrument, timeframe: str) -> None:
+    """Menghapus kunci cache dashboard yang relevan secara aman."""
+    cache_keys = [
+        f'dashboard_detail_{instrument.symbol}_{timeframe}',
+        f'dashboard_detail_{instrument.symbol}_{timeframe}_IQOPTION',
+        f'dashboard_market_data_{timeframe}',
+        f'dashboard_market_data_{timeframe}_all',
+        f'dashboard_market_data_{timeframe}_{instrument.market_category}',
+    ]
+    try:
+        cache.delete_many(cache_keys)
+    except Exception as cache_err:
+        logger.debug(f"Pembersihan cache dilewati ({instrument.symbol}): {cache_err}")
+
+
+# --- Layanan Utama ---
+def get_or_create_iqoption_instrument(
+    symbol_query: str, 
+    category: Optional[str] = None
+) -> MarketInstrument:
     """
     Mencari atau membuat MarketInstrument yang sesuai dengan aset IQ Option.
     Menghubungkan simbol standar ('EURUSD') ke instrumen yang sudah ada ('EURUSD=X')
     atau membuat entri baru untuk aset khusus (seperti 'EURUSD-OTC').
     """
     sq = str(symbol_query).strip()
-    name, active_id = resolve_active_id(sq)
+    name, _ = resolve_active_id(sq)
     target_symbol = name or sq.upper()
 
-    # 1. Jika bukan OTC, cek apakah ada pasangan yfinance yang ekuivalen di database
     if not target_symbol.endswith('-OTC'):
-        # 1a. Cek Forex (EURUSD -> EURUSD=X)
         eq_forex = MarketInstrument.objects.filter(symbol__iexact=f"{target_symbol}=X").first()
         if eq_forex:
             return eq_forex
 
-        # 1b. Cek Kripto (BTCUSD -> BTC-USD)
         if target_symbol.endswith('USD') and len(target_symbol) > 3:
             base_crypto = target_symbol[:-3]
             eq_crypto = MarketInstrument.objects.filter(symbol__iexact=f"{base_crypto}-USD").first()
             if eq_crypto:
                 return eq_crypto
 
-        # 1c. Cek Komoditas (XAUUSD -> GC=F, XAGUSD -> SI=F)
-        comm_map = {'XAUUSD': 'GC=F', 'XAGUSD': 'SI=F'}
-        if target_symbol in comm_map:
-            eq_comm = MarketInstrument.objects.filter(symbol__iexact=comm_map[target_symbol]).first()
+        if target_symbol in COMMODITY_SYMBOL_MAP:
+            eq_comm = MarketInstrument.objects.filter(symbol__iexact=COMMODITY_SYMBOL_MAP[target_symbol]).first()
             if eq_comm:
                 return eq_comm
 
-    # 2. Cek kecocokan langsung di database (misal: EURUSD-OTC)
     inst = MarketInstrument.objects.filter(symbol__iexact=target_symbol).first()
     if inst:
         return inst
 
-    # 3. Buat instrumen baru jika belum ada di database (khusus OTC atau aset baru)
     cat = category or determine_category(target_symbol)
     friendly_name = f"{target_symbol} (IQ Option)"
     for pop in POPULAR_IQOPTION_INSTRUMENTS:
@@ -89,7 +120,11 @@ def get_or_create_iqoption_instrument(symbol_query, category=None):
     return inst
 
 
-def save_candles_to_market_data(instrument, timeframe, candles):
+def save_candles_to_market_data(
+    instrument: MarketInstrument, 
+    timeframe: str, 
+    candles: List[Dict[str, Any]]
+) -> int:
     """
     Menyimpan daftar lilin hasil unduhan IQ Option ke SQLite3 secara massal (bulk upsert).
     """
@@ -100,25 +135,25 @@ def save_candles_to_market_data(instrument, timeframe, candles):
     seen_timestamps = set()
 
     for c in candles:
-        ts = c.get('timestamp')
-        if not ts:
-            from_ts = c.get('from', 0)
-            ts = datetime.fromtimestamp(from_ts, tz=timezone.utc)
+        ts = _parse_candle_timestamp(c)
 
         if ts in seen_timestamps:
             continue
         seen_timestamps.add(ts)
 
-        records_to_upsert.append(MarketData(
-            instrument=instrument,
-            timeframe=timeframe,
-            timestamp=ts,
-            open_price=float(c['open']),
-            high_price=float(c.get('high', c.get('max', c['open']))),
-            low_price=float(c.get('low', c.get('min', c['open']))),
-            close_price=float(c['close']),
-            volume=float(c.get('volume', 0.0)),
-        ))
+        records_to_upsert.append(
+            MarketData(
+                instrument=instrument,
+                timeframe=timeframe,
+                data_source='IQOPTION',
+                timestamp=ts,
+                open_price=float(c['open']),
+                high_price=float(c.get('high', c.get('max', c['open']))),
+                low_price=float(c.get('low', c.get('min', c['open']))),
+                close_price=float(c['close']),
+                volume=float(c.get('volume', 0.0)),
+            )
+        )
 
     if records_to_upsert:
         MarketData.objects.bulk_create(
@@ -126,31 +161,23 @@ def save_candles_to_market_data(instrument, timeframe, candles):
             batch_size=1000,
             update_conflicts=True,
             update_fields=['open_price', 'high_price', 'low_price', 'close_price', 'volume'],
-            unique_fields=['instrument', 'timeframe', 'timestamp']
+            unique_fields=['instrument', 'timeframe', 'data_source', 'timestamp']
         )
-
-        # Bersihkan cache terkait instrumen dan timeframe ini secara aman
-        try:
-            cache.delete(f'dashboard_detail_{instrument.symbol}_{timeframe}')
-            cache.delete(f'dashboard_market_data_{timeframe}')
-            cache.delete(f'dashboard_market_data_{timeframe}_all')
-            cache.delete(f'dashboard_market_data_{timeframe}_{instrument.market_category}')
-        except Exception as cache_err:
-            logger.debug(f"Pembersihan cache dilewati ({instrument.symbol}): {cache_err}")
+        _clear_instrument_cache(instrument, timeframe)
 
     return len(records_to_upsert)
 
 
 def sync_iqoption_candles(
-    symbol,
-    timeframe='1m',
-    count=200,
-    end_time=None,
-    ssid=None,
-    email=None,
-    password=None,
-    demo_feed=False
-):
+    symbol: str,
+    timeframe: str = '1m',
+    count: int = 200,
+    end_time: Optional[Any] = None,
+    ssid: Optional[str] = None,
+    email: Optional[str] = None,
+    password: Optional[str] = None,
+    demo_feed: bool = False
+) -> Dict[str, Any]:
     """
     Fungsi all-in-one untuk menarik riwayat candle dari IQ Option Traderoom
     dan menyimpannya langsung ke database.

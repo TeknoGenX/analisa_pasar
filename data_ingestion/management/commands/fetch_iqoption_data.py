@@ -1,3 +1,4 @@
+#data_ingestion/management/commands/fetch_iqoption_data.py
 import os
 import time
 from django.core.management.base import BaseCommand

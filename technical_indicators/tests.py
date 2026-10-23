@@ -1,3 +1,4 @@
+#technical_indicators/tests.py 
 from django.test import TestCase
 from django.utils import timezone
 from datetime import timedelta
@@ -89,3 +90,44 @@ class TechnicalIndicatorsTestCase(TestCase):
             self.assertIn('position', m)
             self.assertIn('shape', m)
             self.assertIn('text', m)
+
+    def test_detailed_prediction_uses_selected_data_source(self):
+        from technical_indicators.services import get_detailed_prediction
+
+        base_time = timezone.now()
+        for i in range(25):
+            timestamp = base_time - timedelta(minutes=25 - i)
+            MarketData.objects.create(
+                instrument=self.instrument,
+                timeframe='1m',
+                data_source='YAHOO',
+                timestamp=timestamp,
+                open_price=1.1 + i * 0.001,
+                high_price=1.12 + i * 0.001,
+                low_price=1.09 + i * 0.001,
+                close_price=1.11 + i * 0.001,
+                volume=100.0,
+            )
+            MarketData.objects.create(
+                instrument=self.instrument,
+                timeframe='1m',
+                data_source='IQOPTION',
+                timestamp=timestamp,
+                open_price=2.1 + i * 0.001,
+                high_price=2.12 + i * 0.001,
+                low_price=2.09 + i * 0.001,
+                close_price=2.11 + i * 0.001,
+                volume=100.0,
+            )
+
+        yahoo_result = get_detailed_prediction(
+            self.instrument.id, timeframe='1m', data_source='YAHOO'
+        )
+        iqoption_result = get_detailed_prediction(
+            self.instrument.id, timeframe='1m', data_source='IQOPTION'
+        )
+
+        self.assertTrue(yahoo_result['has_enough_data'])
+        self.assertTrue(iqoption_result['has_enough_data'])
+        self.assertEqual(yahoo_result['latest']['close'], 1.134)
+        self.assertEqual(iqoption_result['latest']['close'], 2.134)

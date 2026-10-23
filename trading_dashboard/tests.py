@@ -1,3 +1,4 @@
+# trading_dashboard/tests.py
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
@@ -69,6 +70,20 @@ class DashboardViewsTestCase(TestCase):
         self.assertIn('EURUSD=X', response.content.decode('utf-8'))
         self.assertIn('PREDIKSI', response.content.decode('utf-8'))
 
+    @patch('data_ingestion.tasks.fetch_iqoption_prices')
+    def test_prediction_source_selection_fetches_iqoption_data(self, mock_fetch_iq):
+        response = self.client.get(
+            reverse('trading_dashboard:main_dashboard')
+            + '?symbol=EURUSD=X&tf=1m&source=IQOPTION'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['selected_data_source'], 'IQOPTION')
+        mock_fetch_iq.assert_called_once_with(
+            timeframe='1m', symbols=['EURUSD=X']
+        )
+        self.assertIn('Sumber Data Prediksi', response.content.decode('utf-8'))
+
     def test_flexible_symbol_lookup_without_suffix(self):
         # Memilih 'EURUSD' tanpa '=X' harus otomatis ter-resolve ke 'EURUSD=X'
         response = self.client.get(reverse('trading_dashboard:main_dashboard') + '?symbol=EURUSD&tf=1d')
@@ -83,6 +98,39 @@ class DashboardViewsTestCase(TestCase):
         content = response.content.decode('utf-8')
         self.assertIn('EURUSD=X', content)
         self.assertIn('Prediksi Arah', content)
+
+    def test_category_export_csv_only_includes_selected_category(self):
+        crypto = MarketInstrument.objects.create(
+            symbol='BTC-USD',
+            name='Bitcoin',
+            market_category='CRYPTO',
+            is_active=True
+        )
+        base_time = timezone.now()
+        for i in range(25):
+            MarketData.objects.create(
+                instrument=crypto,
+                timeframe='1d',
+                timestamp=base_time - timedelta(days=25 - i),
+                open_price=30000 + i,
+                high_price=30100 + i,
+                low_price=29900 + i,
+                close_price=30050 + i,
+                volume=100.0
+            )
+
+        response = self.client.get(
+            reverse('trading_dashboard:export_csv') + '?category=FOREX&tf=1d'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'attachment; filename="analisa_pasar_FOREX_1d.csv"',
+            response['Content-Disposition']
+        )
+        content = response.content.decode('utf-8')
+        self.assertIn('EURUSD=X', content)
+        self.assertNotIn('BTC-USD', content)
 
     @patch('data_ingestion.tasks.fetch_market_prices')
     def test_single_market_sync_redirect(self, mock_fetch):

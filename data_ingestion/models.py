@@ -1,3 +1,4 @@
+#data_ingestion/models.py
 from django.db import models
 from django.utils import timezone
 
@@ -38,6 +39,7 @@ class MarketData(models.Model):
 
     instrument = models.ForeignKey(MarketInstrument, on_delete=models.CASCADE, related_name='price_data')
     timeframe = models.CharField(max_length=5, choices=TIMEFRAME_CHOICES, default='1d', help_text="Pilih kerangka waktu (timeframe)")
+    data_source = models.CharField(max_length=20, choices=MarketInstrument.SOURCE_CHOICES, default='YAHOO')
     timestamp = models.DateTimeField(db_index=True)
     open_price = models.FloatField()
     high_price = models.FloatField()
@@ -47,7 +49,7 @@ class MarketData(models.Model):
 
     class Meta:
         # Menjaga keunikan data berdasarkan instrumen, timeframe, dan waktu
-        unique_together = ('instrument', 'timeframe', 'timestamp')
+        unique_together = ('instrument', 'timeframe', 'data_source', 'timestamp')
         ordering = ['-timestamp']
         # Index komposit untuk mempercepat kueri analitik Pandas berdasarkan instrumen, timeframe, dan waktu
         indexes = [

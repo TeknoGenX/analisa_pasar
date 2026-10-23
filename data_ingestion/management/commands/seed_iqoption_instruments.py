@@ -1,3 +1,4 @@
+#data_ingestion/management/commands/seed_iqoption_instruments.py
 from django.core.management.base import BaseCommand
 from data_ingestion.models import MarketInstrument
 from data_ingestion.iqoption.constants import POPULAR_IQOPTION_INSTRUMENTS

@@ -1,3 +1,4 @@
+#technical_indicators/apps.py
 from django.apps import AppConfig
 
 

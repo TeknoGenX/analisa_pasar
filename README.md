@@ -129,6 +129,13 @@ Untuk menghentikan seluruh proses:
 
 Anda dapat mengoperasikan sistem langsung dari terminal tanpa peramban:
 
+### Pemeriksaan Kesehatan Sistem (`doctor`)
+Periksa konfigurasi Django serta koneksi database, cache Redis, dan broker Celery sebelum menjalankan layanan:
+```bash
+./venv/bin/python manage.py doctor
+```
+Perintah mengembalikan status gagal dan kode keluar non-zero jika salah satu pemeriksaan tidak lulus.
+
 ### A. Penarikan Data Pasar Manual (`fetch_market_data`):
 ```bash
 # Tarik seluruh kerangka waktu sekaligus (1m, 5m, 15m, 30m, 1h, 1d, 1wk)

@@ -1,3 +1,4 @@
+#data_ingestion/iqoption/constants.py
 """
 Konstanta dan pemetaan aset untuk IQ Option Traderoom API.
 Menghubungkan simbol trading ke Active ID IQ Option.

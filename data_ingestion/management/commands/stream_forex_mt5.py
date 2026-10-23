@@ -1,3 +1,4 @@
+#data_ingestion/management/commands/stream_forex_mt5.py
 import time
 from datetime import datetime, timezone
 from django.core.management.base import BaseCommand

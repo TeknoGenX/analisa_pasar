@@ -1,3 +1,4 @@
+#data_ingestion/tasks.py
 import logging
 import pandas as pd
 import yfinance as yf
@@ -73,7 +74,7 @@ def fetch_market_prices(timeframe='1d', symbols=None):
     # Filter khusus instrumen Yahoo Finance aktif:
     # Kecualikan instrumen OTC (khusus IQ Option) dan instrumen non-Yahoo
     qs = MarketInstrument.objects.filter(is_active=True).exclude(symbol__endswith='-OTC')
-    if hasattr(MarketInstrument, 'data_source'):
+    if hasattr(MarketInstrument, 'data_source') and not symbols:
         qs = qs.filter(data_source='YAHOO')
 
     if symbols:
@@ -105,7 +106,8 @@ def fetch_market_prices(timeframe='1d', symbols=None):
         if timeframe in ['1m', '5m']:
             existing_count = MarketInstrument.objects.filter(
                 id__in=[inst.id for inst in batch],
-                price_data__timeframe=timeframe
+                price_data__timeframe=timeframe,
+                price_data__data_source='YAHOO',
             ).distinct().count()
             if existing_count == len(batch):
                 dynamic_period = '1d'  # Hanya ambil 1 hari terakhir jika semua instrumen sudah punya data
@@ -134,7 +136,9 @@ def fetch_market_prices(timeframe='1d', symbols=None):
         for inst in batch:
             try:
                 # 2. Ambil timestamp terakhir yang sudah tersimpan di SQLite3 untuk instrumen ini
-                last_record = MarketData.objects.filter(instrument=inst, timeframe=timeframe).order_by('-timestamp').first()
+                last_record = MarketData.objects.filter(
+                    instrument=inst, timeframe=timeframe, data_source='YAHOO'
+                ).order_by('-timestamp').first()
                 last_timestamp = last_record.timestamp if last_record else None
 
                 ticker_data = extract_ticker_df(data, inst.symbol)
@@ -168,6 +172,7 @@ def fetch_market_prices(timeframe='1d', symbols=None):
                     records_to_upsert.append(MarketData(
                         instrument=inst,
                         timeframe=timeframe,
+                        data_source='YAHOO',
                         timestamp=aware_time,
                         open_price=float(row['Open']) if pd.notna(row.get('Open')) else float(close_val),
                         high_price=float(row['High']) if pd.notna(row.get('High')) else float(close_val),
@@ -187,7 +192,9 @@ def fetch_market_prices(timeframe='1d', symbols=None):
                     batch_size=1000,
                     update_conflicts=True,
                     update_fields=['open_price', 'high_price', 'low_price', 'close_price', 'volume'],
-                    unique_fields=['instrument', 'timeframe', 'timestamp']
+                    unique_fields=[
+                        'instrument', 'timeframe', 'data_source', 'timestamp'
+                    ]
                 )
                 total_records_saved += len(records_to_upsert)
             except Exception as e:
@@ -201,6 +208,7 @@ def fetch_market_prices(timeframe='1d', symbols=None):
         if symbols:
             for sym in symbols:
                 cache.delete(f'dashboard_detail_{sym}_{timeframe}')
+                cache.delete(f'dashboard_detail_{sym}_{timeframe}_YAHOO')
     except Exception as cache_err:
         logger.debug(f"Pembersihan cache dilewati ({timeframe}): {cache_err}")
 

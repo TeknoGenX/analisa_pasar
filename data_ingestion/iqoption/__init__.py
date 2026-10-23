@@ -1,3 +1,4 @@
+#data_ingestion/iqoption/__init__.py
 """
 IQ Option Traderoom Integration Module.
 Menyediakan klien WebSocket & HTTP untuk penarikan data candle dan streaming real-time dari IQ Option.
