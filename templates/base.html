@@ -1,0 +1,175 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#121826">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="{% static 'images/favicon.ico' %}" type="image/x-icon">
+
+    <!-- ========================================== -->
+    <!-- BLOK SEO & META TAGS                       -->
+    <!-- ========================================== -->
+    {% block seo_meta %}
+    <title>Sistem Analisa Pasar & Paper Trading</title>
+    <meta name="description" content="Dashboard platform analisa pasar kuantitatif.">
+    {% endblock %}
+
+    <!-- ========================================== -->
+    <!-- CSS DEPENDENCIES                           -->
+    <!-- ========================================== -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+
+    <!-- Global Styling Kustom -->
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #e2e8f0;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        .navbar {
+            background-color: #121826;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .candle-green { color: #10b981 !important; font-weight: 600; }
+        .candle-red { color: #ef4444 !important; font-weight: 600; }
+        
+        .hero-pred-up { border-left: 5px solid #10b981; }
+        .hero-pred-down { border-left: 5px solid #ef4444; }
+        .hero-pred-neutral { border-left: 5px solid #f59e0b; }
+        
+        .badge-prediction-up { background-color: #10b981; }
+        .badge-prediction-down { background-color: #ef4444; }
+        
+        .extra-small { font-size: 0.75rem; }
+        .fw-black { font-weight: 900; }
+        
+        .quick-pill { 
+            font-size: 0.75rem; 
+            padding: 0.35rem 0.85rem; 
+            border-radius: 50rem; 
+            text-decoration: none; 
+            transition: all 0.2s ease; 
+        }
+        .quick-pill:hover { opacity: 0.8; transform: translateY(-1px); }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .animate-pulse { animation: pulse 2s infinite; }
+        
+        .legend-color-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .table { --bs-table-bg: transparent; --bs-table-color: #e2e8f0; }
+        .table-hover tbody tr:hover { background-color: rgba(255, 255, 255, 0.03); }
+        .table > :not(caption) > * > * { border-bottom-color: rgba(255, 255, 255, 0.08); }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+    <!-- ========================================== -->
+    <!-- NAVIGASI UTAMA                             -->
+    <!-- ========================================== -->
+    <nav class="navbar navbar-expand-lg sticky-top shadow-sm" aria-label="Navigasi Utama">
+        <div class="container-fluid px-lg-4">
+            <a class="navbar-brand fw-black d-flex align-items-center gap-2 tracking-tight" href="/">
+                <i class="fa-solid fa-chart-network text-info" aria-hidden="true"></i>
+                <span>AITrade<span class="text-info">Term</span></span>
+            </a>
+            
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigasi">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="mainNavbar">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0 fw-semibold">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.resolver_match.app_name == 'trading_dashboard' %}active text-white{% endif %}" href="/">
+                            <i class="fa-solid fa-desktop me-1"></i> Dashboard Pasar
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#paperTradingModal">
+                            <i class="fa-solid fa-book-journal-whills me-1"></i> Jurnal Virtual
+                        </a>
+                    </li>
+                </ul>
+                
+                <div class="d-flex align-items-center gap-3">
+                    <div class="text-light small fw-medium font-monospace d-none d-md-block bg-dark bg-opacity-50 px-3 py-1 rounded border border-secondary border-opacity-50">
+                        <i class="fa-regular fa-clock text-warning me-1"></i> 
+                        <span id="nav-clock">--:--:--</span> WIB
+                    </div>
+                    
+                    {% if request.user.is_superuser %}
+                    <a href="/admin/" class="btn btn-outline-secondary btn-sm fw-bold shadow-sm" target="_blank" title="Panel Administrasi">
+                        <i class="fa-solid fa-gear"></i>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ========================================== -->
+    <!-- KONTEN UTAMA HALAMAN                       -->
+    <!-- ========================================== -->
+    <div id="wrapper">
+        {% block content %}
+        {% endblock %}
+    </div>
+
+    <!-- ========================================== -->
+    <!-- FOOTER                                     -->
+    <!-- ========================================== -->
+    <footer class="text-center py-4 mt-5 border-top border-secondary border-opacity-25" aria-label="Catatan Kaki">
+        <div class="container text-muted extra-small">
+            <p class="mb-1 fw-semibold text-light">&copy; {% now "Y" %} AITradeTerm - Platform Analisa Pasar Kuantitatif</p>
+            <p class="mb-0 opacity-75">
+                <strong>Peringatan Risiko:</strong> Perdagangan Forex, Saham, Crypto, dan Komoditas mengandung risiko tinggi. 
+                Sistem prediksi ini ditujukan untuk kebutuhan analisa dan edukasi, bukan merupakan saran finansial absolut. 
+                Gunakan fitur Paper Trading untuk menguji strategi sebelum terjun ke pasar riil.
+            </p>
+        </div>
+    </footer>
+
+    <!-- ========================================== -->
+    <!-- JAVASCRIPT LIBRARIES                       -->
+    <!-- ========================================== -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    
+    <script>
+        (function() {
+            function updateClock() {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const clockEl = document.getElementById('nav-clock');
+                if (clockEl) {
+                    clockEl.textContent = timeStr;
+                }
+            }
+            setInterval(updateClock, 1000);
+            updateClock();
+        })();
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
