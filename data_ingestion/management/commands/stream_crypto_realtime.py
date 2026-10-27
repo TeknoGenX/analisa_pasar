@@ -2,11 +2,16 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 import websockets
 
+# Izinkan operasi ORM sinkron di dalam event loop asyncio untuk skrip CLI
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
 from django.core.management.base import BaseCommand
 from django.core.cache import cache
+from asgiref.sync import sync_to_async
 from data_ingestion.models import MarketInstrument, MarketData
 from technical_indicators.services import get_detailed_prediction
 from trading_dashboard.views import resolve_instrument
@@ -105,6 +110,7 @@ class Command(BaseCommand):
                     MarketData.objects.update_or_create(
                         instrument=inst,
                         timeframe='1m',
+                        data_source=inst.data_source,
                         timestamp=candle_time,
                         defaults={
                             'open_price': open_price,
@@ -114,6 +120,15 @@ class Command(BaseCommand):
                             'volume': vol,
                         }
                     )
+
+                    # 1b. Evaluasi Posisi Paper Trading (Cek sentuhan Take Profit / Stop Loss)
+                    try:
+                        from paper_trading.services import evaluate_open_positions
+                        closed_pt = evaluate_open_positions()
+                        if closed_pt > 0:
+                            self.stdout.write(self.style.SUCCESS(f"   🎯 [PAPER TRADING] {closed_pt} posisi virtual mencapai TP/SL."))
+                    except Exception:
+                        pass
 
                     # 2. Evaluasi Prediksi Lilin Sebelumnya (Jika ada)
                     if last_prediction and last_pred_price:
@@ -136,15 +151,22 @@ class Command(BaseCommand):
                         )
 
                     # 3. Jalankan Mesin Prediksi untuk Lilin 1 Menit Berikutnya
-                    pred_res = get_detailed_prediction(inst.id, timeframe='1m')
+                    pred_res = get_detailed_prediction(
+                        inst.id, timeframe='1m', data_source=inst.data_source
+                    )
                     if pred_res and pred_res.get('has_enough_data'):
                         p = pred_res['prediction']
                         last_prediction = p
                         last_pred_price = curr_price
 
                         # Update Redis Cache agar Web Dashboard langsung sinkron instan!
-                        cache.set(f'dashboard_detail_{inst.symbol}_1m', pred_res, timeout=30)
-                        cache.delete(f'dashboard_market_data_1m_all')
+                        try:
+                            cache.set(f'dashboard_detail_{inst.symbol}_1m', pred_res, timeout=30)
+                            cache.set(f'dashboard_detail_{inst.symbol}_1m_{inst.data_source}', pred_res, timeout=30)
+                            cache.delete('dashboard_market_data_1m_all')
+                            cache.delete(f'dashboard_market_data_1m_{inst.market_category}')
+                        except Exception as cache_err:
+                            logger.debug(f"Pembaruan cache dilewati: {cache_err}")
 
                         dir_color = self.style.SUCCESS if p['direction'] == 'NAIK' else (self.style.ERROR if p['direction'] == 'TURUN' else self.style.WARNING)
                         self.stdout.write(dir_color(

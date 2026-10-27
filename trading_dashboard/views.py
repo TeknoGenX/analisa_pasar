@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 def typed_analyze_instrument_optimized(
-    instrument_id: int, timeframe: str = '1d'
+    instrument_id: int, timeframe: str = '1d', data_source: str | None = None
 ) -> dict[Hashable, Any] | None:
     """Type-safe wrapper around the imported analysis function."""
     return cast(
         dict[Hashable, Any] | None,
-        analyze_instrument_optimized(instrument_id, timeframe=timeframe),
+        analyze_instrument_optimized(
+            instrument_id, timeframe=timeframe, data_source=data_source
+        ),
     )
 
 
@@ -376,7 +378,9 @@ def main_dashboard(request):
 
             dashboard_data = []
             for inst in instruments_qs:
-                analysis_result = typed_analyze_instrument_optimized(inst.id, timeframe=tf)
+                analysis_result = typed_analyze_instrument_optimized(
+                    inst.id, timeframe=tf, data_source=inst.data_source
+                )
                 if analysis_result:
                     decimals = 5 if ('=X' in inst.symbol or 'EUR' in inst.symbol or 'USD' in inst.symbol and 'BTC' not in inst.symbol) else (2 if (analysis_result.get('close_price') or 0) > 100 else 4)
                     dashboard_data.append({
@@ -618,7 +622,9 @@ def export_csv(request):
     ])
 
     for inst in instruments:
-        result = typed_analyze_instrument_optimized(inst.id, timeframe=tf)
+        result = typed_analyze_instrument_optimized(
+            inst.id, timeframe=tf, data_source=inst.data_source
+        )
         if result:
             writer.writerow([
                 inst.symbol,

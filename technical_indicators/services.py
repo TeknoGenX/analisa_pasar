@@ -334,6 +334,7 @@ def get_higher_timeframe_bias(
 def analyze_instrument_optimized(
     instrument_id: int,
     timeframe: str = '1d',
+    data_source: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Kalkulasi menggunakan native Pandas untuk mempercepat pemrosesan.
@@ -343,21 +344,26 @@ def analyze_instrument_optimized(
     except MarketInstrument.DoesNotExist:
         return None
 
+    selected_source = data_source or inst.data_source
     qs = (
         MarketData.objects
         .filter(
             instrument=inst,
             timeframe=timeframe,
+            data_source=selected_source,
         )
         .order_by('-timestamp')[:75]
         .values('timestamp', 'open_price', 'high_price', 'low_price', 'close_price', 'volume')
     )
 
-    df = pd.DataFrame.from_records(qs)
-    if df.empty or len(df) < 15:
+    records = list(qs)
+    if not records or len(records) < 15:
         return None
 
+    df = pd.DataFrame.from_records(records)
     df = df.iloc[::-1].reset_index(drop=True)
+    df.drop_duplicates(subset=['timestamp'], keep='last', inplace=True)
+    df.sort_values(by='timestamp', inplace=True)
     df.set_index('timestamp', inplace=True)
 
     # Hitung indikator teknikal

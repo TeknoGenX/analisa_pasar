@@ -131,3 +131,41 @@ class TechnicalIndicatorsTestCase(TestCase):
         self.assertTrue(iqoption_result['has_enough_data'])
         self.assertEqual(yahoo_result['latest']['close'], 1.134)
         self.assertEqual(iqoption_result['latest']['close'], 2.134)
+
+    def test_analyze_instrument_optimized_uses_selected_data_source(self):
+        base_time = timezone.now()
+        for i in range(25):
+            timestamp = base_time - timedelta(minutes=25 - i)
+            MarketData.objects.create(
+                instrument=self.instrument,
+                timeframe='15m',
+                data_source='YAHOO',
+                timestamp=timestamp,
+                open_price=1.10,
+                high_price=1.12,
+                low_price=1.09,
+                close_price=1.11,
+                volume=100.0,
+            )
+            MarketData.objects.create(
+                instrument=self.instrument,
+                timeframe='15m',
+                data_source='IQOPTION',
+                timestamp=timestamp,
+                open_price=2.10,
+                high_price=2.12,
+                low_price=2.09,
+                close_price=2.11,
+                volume=100.0,
+            )
+
+        res_yahoo = analyze_instrument_optimized(self.instrument.id, timeframe='15m', data_source='YAHOO')
+        res_iq = analyze_instrument_optimized(self.instrument.id, timeframe='15m', data_source='IQOPTION')
+
+        self.assertIsNotNone(res_yahoo)
+        self.assertIsNotNone(res_iq)
+        self.assertEqual(res_yahoo['close_price'], 1.11)
+        self.assertEqual(res_iq['close_price'], 2.11)
+        self.assertAlmostEqual(res_yahoo['SMA_20'], 1.11)
+        self.assertAlmostEqual(res_iq['SMA_20'], 2.11)
+

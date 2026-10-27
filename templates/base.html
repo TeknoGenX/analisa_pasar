@@ -153,7 +153,16 @@
     <!-- ========================================== -->
     <!-- JAVASCRIPT LIBRARIES                       -->
     <!-- ========================================== -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- Bootstrap 5 JavaScript Bundle (dengan Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- TradingView Lightweight Charts Library (Lokal dengan CDN Fallback) -->
+    <script src="{% static 'js/lightweight-charts.standalone.production.js' %}"></script>
+    <script>
+        if (typeof LightweightCharts === 'undefined') {
+            document.write('<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"><\/script>');
+        }
+    </script>
     
     <script>
         (function() {

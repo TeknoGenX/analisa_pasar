@@ -3,7 +3,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command, CommandError
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 from data_ingestion.models import MarketInstrument, MarketData
 
@@ -159,3 +159,46 @@ class DoctorCommandTestCase(SimpleTestCase):
 
         with self.assertRaises(CommandError):
             call_command('doctor', stdout=StringIO(), stderr=StringIO())
+
+
+class StreamCryptoRealtimeTestCase(TransactionTestCase):
+    @patch('data_ingestion.management.commands.stream_crypto_realtime.websockets.connect')
+    def test_stream_crypto_realtime_handles_closed_candle_without_async_error(
+        self, mock_ws_connect
+    ):
+        import json
+        from unittest.mock import AsyncMock
+
+        inst = MarketInstrument.objects.create(
+            symbol='BTC-USD',
+            name='Bitcoin / US Dollar',
+            market_category='CRYPTO',
+            is_active=True,
+        )
+
+        fake_msg = json.dumps({
+            'k': {
+                'x': True,
+                'c': '68000.0',
+                'h': '68200.0',
+                'l': '67900.0',
+                'o': '68050.0',
+                'v': '15.5',
+                't': 1700000000000,
+            }
+        })
+
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(return_value=fake_msg)
+        mock_ws_connect.return_value.__aenter__.return_value = mock_ws
+
+        out = StringIO()
+        call_command('stream_crypto_realtime', '--symbol', 'BTC-USD', '--max-candles', '1', stdout=out)
+
+        # Pastikan tidak terjadi SynchronousOnlyOperation dan lilin tersimpan
+        candle = MarketData.objects.filter(instrument=inst, timeframe='1m').first()
+        self.assertIsNotNone(candle)
+        self.assertEqual(candle.close_price, 68000.0)
+        self.assertEqual(candle.open_price, 68050.0)
+        self.assertIn('LILIN 1M SELESAI #1', out.getvalue())
+

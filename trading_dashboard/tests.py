@@ -194,3 +194,11 @@ class DashboardViewsTestCase(TestCase):
         self.assertIn('id="btnOscRsi"', html)
         self.assertIn('id="btnOscMacd"', html)
         self.assertIn('id="rawCandleTableCollapse"', html)
+
+    def test_base_template_includes_bootstrap_bundle_and_charts_js(self):
+        response = self.client.get(reverse('trading_dashboard:main_dashboard'))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8')
+        self.assertIn('bootstrap.bundle.min.js', html)
+        self.assertIn('lightweight-charts', html)
+
