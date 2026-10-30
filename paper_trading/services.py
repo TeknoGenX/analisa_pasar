@@ -82,7 +82,9 @@ def open_paper_trade(
 
     # Jika TP / SL belum diisi, otomatis hitung dari ATR 14 via mesin prediksi
     if take_profit is None or stop_loss is None:
-        pred_data = get_detailed_prediction(instrument.id, timeframe=timeframe)
+        pred_data = get_detailed_prediction(
+            instrument.id, timeframe=timeframe, data_source=instrument.data_source
+        )
         if pred_data and pred_data.get('has_enough_data'):
             p = pred_data['prediction']
             if order_type == 'BUY':
@@ -206,7 +208,7 @@ def evaluate_open_positions():
             .order_by('-timestamp')
             .first()
         )
-        if not last_candle:
+        if not last_candle or last_candle.timestamp < trade.entry_time:
             continue
 
         c_high = last_candle.high_price
@@ -265,7 +267,9 @@ def process_auto_trading_signals():
             if current_open >= setting.max_open_positions:
                 break
 
-            pred = get_detailed_prediction(inst.id, timeframe='1m')
+            pred = get_detailed_prediction(
+                inst.id, timeframe='1m', data_source=inst.data_source
+            )
             if not pred or not pred.get('has_enough_data'):
                 continue
 

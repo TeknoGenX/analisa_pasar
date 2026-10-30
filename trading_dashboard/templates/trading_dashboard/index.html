@@ -47,8 +47,27 @@
     }
     .hover-lift { transition: transform 0.25s ease; }
     .hover-lift:hover { transform: translateY(-4px); }
+    .hover-underline:hover { text-decoration: underline !important; }
     
-    /* Bug-Fix Linter CSS: Variabel untuk Lebar Progress Bar disuntikkan via CSS Variables (Custom Properties) */
+    /* Tombol Overlay Indikator Grafik Kustom */
+    .btn-outline-purple {
+        color: #c084fc;
+        border-color: #a855f7;
+    }
+    .btn-outline-purple:hover, .btn-outline-purple.active {
+        color: #ffffff;
+        background-color: #a855f7;
+        border-color: #a855f7;
+    }
+    .btn-outline-teal {
+        color: #2dd4bf;
+        border-color: #14b8a6;
+    }
+    .btn-outline-teal:hover, .btn-outline-teal.active {
+        color: #ffffff;
+        background-color: #14b8a6;
+        border-color: #14b8a6;
+    }
 </style>
 {% endblock %}
 
@@ -162,32 +181,56 @@
     <!-- PANEL NAVIGASI: PILIH PASAR & TIMEFRAME -->
     <nav aria-label="Navigasi Pasar dan Timeframe" class="card shadow-sm p-3 mb-4 border-secondary bg-dark bg-opacity-50">
         <div class="row g-3 align-items-center">
-            <!-- Dropdown Pemilih 1 Pasar Tertentu -->
-            <div class="col-lg-5 col-md-12">
-                <form method="get" action="" class="d-flex align-items-center gap-2">
+            <!-- Pencarian Cerdas & Pemilih Pasar (Mendukung 962 Emiten Saham IDX) -->
+            <div class="col-lg-6 col-md-12">
+                <form method="get" action="" class="row g-2 align-items-center">
                     <input type="hidden" name="tf" value="{{ active_tf }}">
-                    {% if selected_instrument %}<input type="hidden" name="source" value="{{ selected_data_source }}">{% endif %}
-                    <label for="marketSelect" class="form-label mb-0 fw-bold text-light small text-nowrap">
-                        🎯 Pilih 1 Pasar:
-                    </label>
-                    <select name="symbol" id="marketSelect" class="form-select form-select-sm fw-semibold border-secondary bg-dark text-light" onchange="this.form.submit()">
-                        <option value="all" {% if not selected_instrument %}selected{% endif %}>🌍 Semua Pasar (Tampilan Ringkasan Global)</option>
-                        {% for cat_name, inst_list in grouped_instruments.items %}
-                        <optgroup label="📂 {{ cat_name }}">
-                            {% for inst in inst_list %}
-                            <option value="{{ inst.symbol }}" {% if current_symbol == inst.symbol %}selected{% endif %}>
-                                {{ inst.symbol }} - {{ inst.name }}
-                            </option>
+                    
+                    <div class="col-sm-7 col-12">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-dark text-info border-secondary">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </span>
+                            <input type="text" name="symbol" id="marketSearchInput" list="instrumentsDatalist"
+                                   class="form-control form-control-sm bg-dark text-light border-secondary"
+                                   placeholder="Cari Saham IDX / Aset (MGLV, NexAI, BBCA...)"
+                                   value="{% if selected_instrument %}{{ selected_instrument.symbol }}{% endif %}"
+                                   autocomplete="off">
+                            <button type="submit" class="btn btn-primary btn-sm fw-semibold">
+                                Cari
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="col-sm-5 col-12">
+                        <select name="select_symbol" id="marketSelect" class="form-select form-select-sm fw-semibold border-secondary bg-dark text-light">
+                            <option value="all" {% if not selected_instrument %}selected{% endif %}>🌍 Semua Pasar (Global)</option>
+                            {% for cat_name, inst_list in grouped_instruments.items %}
+                            <optgroup label="📂 {{ cat_name }}{% if cat_name == 'Saham' %} IDX ({{ inst_list|length }} Emiten){% endif %}">
+                                {% for inst in inst_list %}
+                                <option value="{{ inst.symbol }}" {% if current_symbol == inst.symbol %}selected{% endif %}>
+                                    {{ inst.symbol }} - {{ inst.name }}
+                                </option>
+                                {% endfor %}
+                            </optgroup>
                             {% endfor %}
-                        </optgroup>
-                        {% endfor %}
-                    </select>
-                    <noscript><button type="submit" class="btn btn-primary btn-sm">Buka</button></noscript>
+                        </select>
+                    </div>
                 </form>
+
+                <!-- Datalist untuk Autocomplete Cepat Seluruh 962 Saham IDX & Aset -->
+                <datalist id="instrumentsDatalist">
+                    {% for cat_name, inst_list in grouped_instruments.items %}
+                        {% for inst in inst_list %}
+                        <option value="{{ inst.symbol }}">{{ inst.symbol }} - {{ inst.name }}</option>
+                        <option value="{{ inst.name }}">{{ inst.symbol }} - {{ inst.name }}</option>
+                        {% endfor %}
+                    {% endfor %}
+                </datalist>
             </div>
 
             <!-- Pemilih Kerangka Waktu (Timeframe) -->
-            <div class="col-lg-7 col-md-12">
+            <div class="col-lg-6 col-md-12">
                 <div class="d-flex flex-wrap justify-content-lg-end align-items-center gap-2">
                     <span class="small fw-bold text-light">🕒 Timeframe:</span>
                     {% for code, label in timeframes %}
@@ -499,10 +542,10 @@
                         <!-- Status Auto-Trade Helper -->
                         <div class="d-flex justify-content-between align-items-center mt-3 px-2 extra-small text-muted bg-dark bg-opacity-50 py-2 rounded">
                             <div>
-                                <span class="badge {% if auto_setting.is_enabled %}bg-success{% else %}bg-secondary{% endif %} me-1">
+                                <span class="badge {% if auto_setting.is_enabled %}bg-success{% else %}bg-secondary{% endif %} me-1" id="autoTradeStatusBadge">
                                     {% if auto_setting.is_enabled %}🤖 Auto-Trade Aktif{% else %}⚪ Auto-Trade Nonaktif{% endif %}
                                 </span>
-                                <span>Bot otomatis eksekusi saat sinyal ≥ {{ auto_setting.min_probability }}%.</span>
+                                <span id="autoTradeStatusDesc">Bot otomatis eksekusi saat sinyal ≥ {{ auto_setting.min_probability }}%.</span>
                             </div>
                             <button type="button" class="btn btn-link btn-sm p-0 extra-small text-info text-decoration-none" data-bs-toggle="modal" data-bs-target="#paperTradingModal">
                                 Kelola Bot ⚙️
@@ -617,7 +660,7 @@
                         </div>
                         <div class="btn-group btn-group-sm ms-2" role="group" aria-label="Pemilih Timeframe Grafik">
                             {% for tf_code, tf_label in timeframes %}
-                            <a href="?symbol={{ selected_instrument.symbol }}&tf={{ tf_code }}" 
+                            <a href="?symbol={{ selected_instrument.symbol }}&tf={{ tf_code }}{% if selected_data_source %}&source={{ selected_data_source }}{% endif %}" 
                                class="btn btn-sm {% if tf_code == active_tf %}btn-primary fw-bold text-white shadow-sm{% else %}btn-dark text-muted border-secondary border-opacity-50{% endif %} py-0 px-2"
                                title="{{ tf_label }}">
                                 {{ tf_code|upper }}
@@ -1079,7 +1122,7 @@
                                             </span>
                                         </td>
                                         <td>
-                                            <form method="post" action="{% url 'paper_trading:close_order' trade.id %}" style="display:inline;">
+                                            <form method="post" action="{% url 'paper_trading:close_order' trade.id %}" style="display:inline;" onsubmit="return confirm('Tutup posisi {{ trade.instrument.symbol }} sekarang?');">
                                                 {% csrf_token %}
                                                 <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2 fw-semibold hover-lift" title="Tutup posisi sekarang pada harga pasar">
                                                     ❌ Tutup
@@ -1202,6 +1245,48 @@
             });
         }
 
+        // Sinkronisasi Pemilih Pasar (Dropdown & Input Pencarian)
+        const marketSelect = document.getElementById('marketSelect');
+        const marketSearchInput = document.getElementById('marketSearchInput');
+        if (marketSelect && marketSearchInput) {
+            marketSelect.addEventListener('change', function() {
+                if (this.value === 'all') {
+                    marketSearchInput.value = '';
+                } else {
+                    marketSearchInput.value = this.value;
+                }
+                this.form.submit();
+            });
+
+            // Autocomplete Dinamis Pencarian Saham IDX & Aset via API
+            let searchDebounce = null;
+            marketSearchInput.addEventListener('input', function() {
+                const q = this.value.trim();
+                if (q.length < 2) return;
+                clearTimeout(searchDebounce);
+                searchDebounce = setTimeout(() => {
+                    fetch(`{% url 'trading_dashboard:search_instruments_api' %}?q=${encodeURIComponent(q)}&limit=15`)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data && data.results && data.results.length > 0) {
+                                const datalist = document.getElementById('instrumentsDatalist');
+                                if (datalist) {
+                                    data.results.forEach(item => {
+                                        if (!datalist.querySelector(`option[value="${item.symbol}"]`)) {
+                                            const opt = document.createElement('option');
+                                            opt.value = item.symbol;
+                                            opt.textContent = `${item.symbol} - ${item.name}`;
+                                            datalist.prepend(opt);
+                                        }
+                                    });
+                                }
+                            }
+                        })
+                        .catch(() => {});
+                }, 250);
+            });
+        }
+
         // AJAX Toggle Auto Trade Bot
         const toggleBtn = document.getElementById('toggleAutoTradeBtn');
         const autoAmount = document.getElementById('autoTradeAmountInput');
@@ -1229,12 +1314,26 @@
                 .then(data => {
                     toggleBtn.style.opacity = '1';
                     if (data.success) {
+                        const statusBadge = document.getElementById('autoTradeStatusBadge');
+                        const statusDesc = document.getElementById('autoTradeStatusDesc');
+
                         if (data.is_enabled) {
                             toggleBtn.className = 'btn btn-sm btn-success fw-bold px-3 transition-all shadow-sm';
                             toggleBtn.textContent = '✅ Bot Aktif';
+                            if (statusBadge) {
+                                statusBadge.className = 'badge bg-success me-1';
+                                statusBadge.textContent = '🤖 Auto-Trade Aktif';
+                            }
                         } else {
                             toggleBtn.className = 'btn btn-sm btn-outline-secondary fw-bold px-3 transition-all shadow-sm';
                             toggleBtn.textContent = '⚪ Aktifkan Bot';
+                            if (statusBadge) {
+                                statusBadge.className = 'badge bg-secondary me-1';
+                                statusBadge.textContent = '⚪ Auto-Trade Nonaktif';
+                            }
+                        }
+                        if (statusDesc) {
+                            statusDesc.textContent = `Bot otomatis eksekusi saat sinyal ≥ ${data.min_probability || 70}%.`;
                         }
                     }
                 })
@@ -1246,7 +1345,7 @@
         }
     })();
 
-    // Logika Auto-Refresh Cerdas
+    // Logika Auto-Refresh Cerdas dengan Preservasi LocalStorage
     (function() {
         const activeTf = "{{ active_tf }}";
         let refreshIntervalSec = 300; 
@@ -1261,6 +1360,13 @@
 
         const toggle = document.getElementById('autoRefreshToggle');
         const label = document.getElementById('refreshLabel');
+
+        // Pulihkan preferensi pengguna dari localStorage
+        const storedPref = localStorage.getItem('aitrade_autorefresh');
+        if (storedPref === '0' && toggle) {
+            toggle.checked = false;
+        }
+
         let countdown = refreshIntervalSec;
         let timer = null;
 
@@ -1289,6 +1395,7 @@
             updateLabel();
 
             toggle.addEventListener('change', function() {
+                localStorage.setItem('aitrade_autorefresh', toggle.checked ? '1' : '0');
                 if (toggle.checked) {
                     countdown = refreshIntervalSec;
                 }
@@ -1490,16 +1597,17 @@
         // 8. Toolbar Toggles
         let ema9On = true, ema21On = true, atrOn = true, volOn = true, markersOn = true, oscMode = 'RSI';
         
-        function setupToggle(btnId, varRef, applyFn, legId) {
+        function setupToggle(btnId, initialActive, applyFn, legId) {
             const btn = document.getElementById(btnId);
             if (btn) {
+                let isActive = initialActive;
                 btn.addEventListener('click', function() {
-                    varRef = !varRef;
-                    applyFn(varRef);
-                    this.classList.toggle('active', varRef);
+                    isActive = !isActive;
+                    applyFn(isActive);
+                    this.classList.toggle('active', isActive);
                     if (legId) {
                         const el = document.getElementById(legId);
-                        if (el) el.style.display = varRef ? 'inline' : 'none';
+                        if (el) el.style.display = isActive ? 'inline' : 'none';
                     }
                 });
             }
@@ -1551,7 +1659,7 @@
         if (btnOscMacd) btnOscMacd.addEventListener('click', () => applyOscMode('MACD'));
         if (btnOscNone) btnOscNone.addEventListener('click', () => applyOscMode('NONE'));
 
-        // Reset Zoom & Fullscreen
+        // Reset Zoom & Fullscreen dengan penyesuaian ukuran mulus
         const btnResetZoom = document.getElementById('btnResetZoom');
         if (btnResetZoom) btnResetZoom.addEventListener('click', () => { mainChart.timeScale().fitContent(); oscChart.timeScale().fitContent(); });
         
@@ -1559,12 +1667,27 @@
         const tvChartCard = document.getElementById('tvChartCard');
         if (btnFullscreen && tvChartCard) {
             btnFullscreen.addEventListener('click', () => {
-                if (!document.fullscreenElement) tvChartCard.requestFullscreen().catch(e => console.error(e));
-                else document.exitFullscreen().catch(e => console.error(e));
+                if (!document.fullscreenElement) {
+                    tvChartCard.requestFullscreen().then(() => {
+                        setTimeout(() => {
+                            mainChart.resize(mainContainer.clientWidth, 520);
+                            if (oscMode !== 'NONE') oscChart.resize(oscContainer.clientWidth, 180);
+                            mainChart.timeScale().fitContent();
+                        }, 100);
+                    }).catch(e => console.error(e));
+                } else {
+                    document.exitFullscreen().then(() => {
+                        setTimeout(() => {
+                            mainChart.resize(mainContainer.clientWidth, 440);
+                            if (oscMode !== 'NONE') oscChart.resize(oscContainer.clientWidth, 160);
+                            mainChart.timeScale().fitContent();
+                        }, 100);
+                    }).catch(e => console.error(e));
+                }
             });
         }
 
-        // 9. Live Crosshair Hover Legend
+        // 9. Live Crosshair Hover Legend (Sinkron Main & Osc)
         const legDOM = {
             time: document.getElementById('legTime'),
             open: document.getElementById('legOpen'), high: document.getElementById('legHigh'),
@@ -1618,10 +1741,11 @@
             updateLegend(lastC, lastE9 ? lastE9.value : null, lastE21 ? lastE21.value : null, lastAtrUp ? lastAtrUp.value : null, lastAtrLow ? lastAtrLow.value : null, lastVol ? lastVol.value : null, currentOsc, timeStr);
         }
 
-        mainChart.subscribeCrosshairMove(param => {
+        function onCrosshair(param) {
             if (!param.point || !param.time) { showLatestLegend(); return; }
             const sd = param.seriesData;
             const c = (sd && typeof sd.get === 'function') ? sd.get(candleSeries) : null;
+            if (!c) { showLatestLegend(); return; }
             const e9 = (sd && typeof sd.get === 'function') ? sd.get(ema9Series) : null;
             const e21 = (sd && typeof sd.get === 'function') ? sd.get(ema21Series) : null;
             const atrUp = (sd && typeof sd.get === 'function') ? sd.get(atrUpperSeries) : null;
@@ -1632,7 +1756,10 @@
             const d = new Date(param.time * 1000);
             const timeStr = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
             updateLegend(c, e9 ? e9.value : null, e21 ? e21.value : null, atrUp ? atrUp.value : null, atrLow ? atrLow.value : null, vol ? vol.value : null, osc ? osc.value : null, timeStr);
-        });
+        }
+
+        mainChart.subscribeCrosshairMove(onCrosshair);
+        oscChart.subscribeCrosshairMove(onCrosshair);
 
         showLatestLegend();
 

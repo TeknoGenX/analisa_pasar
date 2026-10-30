@@ -105,6 +105,7 @@ class Command(BaseCommand):
                     MarketData.objects.update_or_create(
                         instrument=inst,
                         timeframe='1m',
+                        data_source=inst.data_source,
                         timestamp=candle_ts,
                         defaults={
                             'open_price': open_p,
@@ -114,6 +115,15 @@ class Command(BaseCommand):
                             'volume': vol,
                         }
                     )
+
+                    # 1b. Evaluasi Posisi Paper Trading
+                    try:
+                        from paper_trading.services import evaluate_open_positions
+                        closed_pt = evaluate_open_positions()
+                        if closed_pt > 0:
+                            self.stdout.write(self.style.SUCCESS(f"   🎯 [PAPER TRADING] {closed_pt} posisi virtual mencapai TP/SL."))
+                    except Exception:
+                        pass
 
                     # 2. Evaluasi Prediksi Sebelumnya
                     if last_prediction and last_pred_price:
@@ -134,15 +144,20 @@ class Command(BaseCommand):
                         )
 
                     # 3. Jalankan Prediksi Lilin 1 Menit Berikutnya
-                    pred_res = get_detailed_prediction(inst.id, timeframe='1m')
+                    pred_res = get_detailed_prediction(inst.id, timeframe='1m', data_source=inst.data_source)
                     if pred_res and pred_res.get('has_enough_data'):
                         p = pred_res['prediction']
                         last_prediction = p
                         last_pred_price = close_p
 
                         # Update Redis Cache
-                        cache.set(f'dashboard_detail_{inst.symbol}_1m', pred_res, timeout=30)
-                        cache.delete(f'dashboard_market_data_1m_all')
+                        try:
+                            cache.set(f'dashboard_detail_{inst.symbol}_1m', pred_res, timeout=30)
+                            cache.set(f'dashboard_detail_{inst.symbol}_1m_{inst.data_source}', pred_res, timeout=30)
+                            cache.delete('dashboard_market_data_1m_all')
+                            cache.delete(f'dashboard_market_data_1m_{inst.market_category}')
+                        except Exception:
+                            pass
 
                         dir_color = self.style.SUCCESS if p['direction'] == 'NAIK' else (self.style.ERROR if p['direction'] == 'TURUN' else self.style.WARNING)
                         self.stdout.write(dir_color(

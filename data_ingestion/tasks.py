@@ -9,6 +9,9 @@ from .models import MarketInstrument, MarketData
 
 logger = logging.getLogger('data_ingestion')
 
+# Bungkam log galat verbose / failed download dari yfinance agar tidak mencemari terminal Celery
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+
 # Konfigurasi periode unduh optimal berdasarkan interval yfinance
 TIMEFRAME_CONFIG = {
     '1m': {'period': '2d', 'interval': '1m'},
@@ -59,10 +62,11 @@ def extract_ticker_df(data, symbol):
 
 
 @shared_task
-def fetch_market_prices(timeframe='1d', symbols=None):
+def fetch_market_prices(timeframe='1d', symbols=None, category=None):
     """
     Menarik data riwayat pasar secara incremental (hanya data baru yang belum ada di SQLite3)
     untuk mempercepat proses dan mencegah duplikasi data candle.
+    Mendukung filter instrumen spesifik melalui parameter 'symbols' atau 'category' (misal: 'STOCK').
     """
     if timeframe not in TIMEFRAME_CONFIG:
         timeframe = '1d'
@@ -76,6 +80,9 @@ def fetch_market_prices(timeframe='1d', symbols=None):
     qs = MarketInstrument.objects.filter(is_active=True).exclude(symbol__endswith='-OTC')
     if hasattr(MarketInstrument, 'data_source') and not symbols:
         qs = qs.filter(data_source='YAHOO')
+
+    if category:
+        qs = qs.filter(market_category=category.upper())
 
     if symbols:
         instruments = list(qs.filter(symbol__in=symbols))
@@ -114,6 +121,7 @@ def fetch_market_prices(timeframe='1d', symbols=None):
 
         try:
             # Menggunakan suppress/silent error untuk batch yang memiliki simbol tidak valid/delisted
+            logging.getLogger('yfinance').setLevel(logging.CRITICAL)
             data = yf.download(
                 tickers=batch_symbols,
                 period=dynamic_period,

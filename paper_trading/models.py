@@ -29,10 +29,12 @@ class VirtualAccount(models.Model):
 
     @property
     def equity(self):
-        """Menghitung total ekuitas (Saldo Kas + Floating P&L dari posisi terbuka)"""
+        """Menghitung total ekuitas (Saldo Kas + Margin Terkunci + Floating P&L dari posisi terbuka)"""
         open_trades = self.trades.filter(status='OPEN')
         floating_total = 0.0
+        used_margin = 0.0
         for trade in open_trades:
+            used_margin += trade.amount
             last_candle = (
                 trade.instrument.price_data.filter(
                     timeframe=trade.timeframe,
@@ -45,7 +47,7 @@ class VirtualAccount(models.Model):
                 floating_total += trade.calculate_floating_pnl(
                     last_candle.close_price
                 )
-        return round(self.balance + floating_total, 2)
+        return round(self.balance + used_margin + floating_total, 2)
 
     def get_stats(self):
         """Menghitung statistik trading historis (Win Rate, Total Profit/Loss, dsb.)"""
@@ -77,7 +79,7 @@ class VirtualAccount(models.Model):
         )
         roi_percent = (
             round(
-                ((self.balance - self.initial_balance) / self.initial_balance)
+                ((self.equity - self.initial_balance) / self.initial_balance)
                 * 100,
                 2,
             )

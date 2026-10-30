@@ -201,4 +201,101 @@ class DashboardViewsTestCase(TestCase):
         html = response.content.decode('utf-8')
         self.assertIn('bootstrap.bundle.min.js', html)
         self.assertIn('lightweight-charts', html)
+        self.assertIn('fa-chart-line', html)
+        self.assertIn('btn-outline-purple', html)
+        self.assertIn('btn-outline-teal', html)
+
+    def test_resolve_instrument_with_idx_stocks(self):
+        from trading_dashboard.views import resolve_instrument
+
+        # Pastikan instrumen sampel ada di database
+        samples = [
+            ('MGLV.JK', 'NexAI Digital Infrastruktur Tbk', 'STOCK'),
+            ('TRUE.JK', 'Triniti Dinamik Tbk', 'STOCK'),
+            ('LABA.JK', 'Green Power Group Tbk', 'STOCK'),
+            ('BATA.JK', 'Sepatu Bata Tbk', 'STOCK'),
+            ('BAYU.JK', 'Bayu Buana Tbk', 'STOCK'),
+            ('BBCA.JK', 'Bank Central Asia Tbk', 'STOCK'),
+            ('TLKM.JK', 'Telkom Indonesia (Persero) Tbk', 'STOCK'),
+        ]
+        for sym, name, cat in samples:
+            MarketInstrument.objects.get_or_create(
+                symbol=sym,
+                defaults={'name': name, 'market_category': cat, 'is_active': True}
+            )
+
+        # 1. Resolusi via simbol ticker
+        self.assertEqual(resolve_instrument('MGLV').symbol, 'MGLV.JK')
+        self.assertEqual(resolve_instrument('mglv').symbol, 'MGLV.JK')
+        self.assertEqual(resolve_instrument('MGLV.JK').symbol, 'MGLV.JK')
+
+        # 2. Resolusi via nama perusahaan dari prompt (termasuk sufiks Tb dan Tbk.)
+        self.assertEqual(resolve_instrument('NexAI Digital Infrastruktur Tb').symbol, 'MGLV.JK')
+        self.assertEqual(resolve_instrument('Triniti Dinamik Tbk.').symbol, 'TRUE.JK')
+        self.assertEqual(resolve_instrument('Green Power Group Tbk.').symbol, 'LABA.JK')
+        self.assertEqual(resolve_instrument('Sepatu Bata Tbk.').symbol, 'BATA.JK')
+        self.assertEqual(resolve_instrument('Bayu Buana Tbk').symbol, 'BAYU.JK')
+
+        # 3. Resolusi via prefix PT dan (Persero)
+        self.assertEqual(resolve_instrument('PT Bank Central Asia Tbk.').symbol, 'BBCA.JK')
+        self.assertEqual(resolve_instrument('PT. Telkom Indonesia (Persero) Tbk.').symbol, 'TLKM.JK')
+
+        # 4. Resolusi format gabungan datalist 'MGLV.JK - NexAI...'
+        self.assertEqual(
+            resolve_instrument('MGLV.JK - NexAI Digital Infrastruktur Tbk').symbol,
+            'MGLV.JK'
+        )
+
+    def test_search_instruments_api(self):
+        MarketInstrument.objects.get_or_create(
+            symbol='MGLV.JK',
+            defaults={'name': 'NexAI Digital Infrastruktur Tbk', 'market_category': 'STOCK', 'is_active': True}
+        )
+        MarketInstrument.objects.get_or_create(
+            symbol='TRUE.JK',
+            defaults={'name': 'Triniti Dinamik Tbk', 'market_category': 'STOCK', 'is_active': True}
+        )
+
+        # Cari berdasarkan kode ticker
+        resp = self.client.get(reverse('trading_dashboard:search_instruments_api') + '?q=MGLV')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(len(data['results']) >= 1)
+        self.assertEqual(data['results'][0]['symbol'], 'MGLV.JK')
+
+        # Cari berdasarkan nama perusahaan
+        resp2 = self.client.get(reverse('trading_dashboard:search_instruments_api') + '?q=NexAI')
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertTrue(len(data2['results']) >= 1)
+        self.assertEqual(data2['results'][0]['symbol'], 'MGLV.JK')
+
+        # Cari dengan trailing 'Tbk.'
+        resp3 = self.client.get(reverse('trading_dashboard:search_instruments_api') + '?q=Triniti Dinamik Tbk.')
+        self.assertEqual(resp3.status_code, 200)
+        data3 = resp3.json()
+        self.assertTrue(len(data3['results']) >= 1)
+        self.assertEqual(data3['results'][0]['symbol'], 'TRUE.JK')
+
+        # Query kosong
+        resp_empty = self.client.get(reverse('trading_dashboard:search_instruments_api') + '?q=')
+        self.assertEqual(resp_empty.status_code, 200)
+        self.assertEqual(resp_empty.json()['results'], [])
+
+    def test_dashboard_renders_search_bar_and_idx_quick_pill(self):
+        MarketInstrument.objects.get_or_create(
+            symbol='MGLV.JK',
+            defaults={'name': 'NexAI Digital Infrastruktur Tbk', 'market_category': 'STOCK', 'is_active': True}
+        )
+        response = self.client.get(reverse('trading_dashboard:main_dashboard'))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8')
+
+        # Verifikasi input search dan datalist ter-render
+        self.assertIn('id="marketSearchInput"', html)
+        self.assertIn('id="instrumentsDatalist"', html)
+
+        # Verifikasi quick pill MGLV (NexAI) ter-render
+        self.assertIn('MGLV (NexAI)', html)
+
 

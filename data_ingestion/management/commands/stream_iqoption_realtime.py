@@ -215,15 +215,20 @@ class Command(BaseCommand):
                 )
 
             # 3. Jalankan Mesin Prediksi untuk Lilin Berikutnya
-            pred_res = await sync_to_async(get_detailed_prediction)(inst.id, timeframe=timeframe)
+            pred_res = await sync_to_async(get_detailed_prediction)(inst.id, timeframe=timeframe, data_source='IQOPTION')
             if pred_res and pred_res.get('has_enough_data'):
                 p = pred_res['prediction']
                 last_prediction = p
                 last_pred_price = close_p
 
                 # Update Redis Cache agar Web Dashboard langsung sinkron instan
-                cache.set(f'dashboard_detail_{inst.symbol}_{timeframe}', pred_res, timeout=30)
-                cache.delete(f'dashboard_market_data_{timeframe}_all')
+                try:
+                    cache.set(f'dashboard_detail_{inst.symbol}_{timeframe}', pred_res, timeout=30)
+                    cache.set(f'dashboard_detail_{inst.symbol}_{timeframe}_IQOPTION', pred_res, timeout=30)
+                    cache.delete(f'dashboard_market_data_{timeframe}_all')
+                    cache.delete(f'dashboard_market_data_{timeframe}_{inst.market_category}')
+                except Exception as cache_err:
+                    logger.debug(f"Pembaruan cache IQ Option dilewati: {cache_err}")
 
                 dir_color = self.style.SUCCESS if p['direction'] == 'NAIK' else (
                     self.style.ERROR if p['direction'] == 'TURUN' else self.style.WARNING

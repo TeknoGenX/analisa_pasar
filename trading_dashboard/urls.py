@@ -9,4 +9,5 @@ urlpatterns = [
     path('sync/', views.sync_market_data, name='sync_data'),
     path('export-csv/', views.export_csv, name='export_csv'),
     path('api/chart-data/', views.chart_data_api, name='chart_data_api'),
+    path('api/instruments/search/', views.search_instruments_api, name='search_instruments_api'),
 ]

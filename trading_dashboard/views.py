@@ -2,6 +2,7 @@
 import csv
 import json
 import logging
+import re
 from urllib.parse import urlencode
 from collections.abc import Hashable
 from typing import Any, cast
@@ -58,7 +59,11 @@ POPULAR_SYMBOLS = [
     ('USDJPY=X', 'USD/JPY', 'FOREX'),
     ('BTC-USD', 'BTC/USD', 'CRYPTO'),
     ('ETH-USD', 'ETH/USD', 'CRYPTO'),
+    ('MGLV.JK', 'MGLV (NexAI)', 'STOCK'),
     ('BBCA.JK', 'BBCA', 'STOCK'),
+    ('GOTO.JK', 'GOTO', 'STOCK'),
+    ('BREN.JK', 'BREN', 'STOCK'),
+    ('AMMN.JK', 'AMMN', 'STOCK'),
     ('GC=F', 'Emas (Gold)', 'COMMODITY'),
     ('CL=F', 'Minyak (WTI)', 'COMMODITY'),
 ]
@@ -78,68 +83,101 @@ def resolve_instrument(symbol_query):
     """
     Pencari instrumen cerdas dan fleksibel:
     Mendukung simbol lengkap ('EURUSD=X'), tanpa akhiran ('EURUSD'),
-    simbol OTC IQ Option ('EURUSD-OTC'), huruf kecil/besar, nama parsial, atau ID numerik.
+    simbol OTC IQ Option ('EURUSD-OTC'), format gabungan ('MGLV.JK - NexAI...'),
+    huruf kecil/besar, nama parsial (termasuk sufiks 'Tbk.', 'Tbk', 'Tb', 'PT'), atau ID numerik.
     """
     if not symbol_query or str(symbol_query).strip().lower() in ['', 'all', 'semua']:
         return None
 
     sq = str(symbol_query).strip()
 
+    # 0. Jika format gabungan 'SIMBOL - NAMA' dari autocomplete/datalist, pecah dan cari
+    if ' - ' in sq:
+        parts = sq.split(' - ')
+        candidate = resolve_instrument(parts[0])
+        if candidate:
+            return candidate
+        candidate = resolve_instrument(parts[1])
+        if candidate:
+            return candidate
+
+    # Bersihkan titik di awal/akhir input mentah (misal: 'MGLV.', 'BBCA.JK.')
+    sq_clean = sq.strip('.')
+
     # 1. Cek kecocokan simbol persis (case insensitive)
-    inst = MarketInstrument.objects.filter(symbol__iexact=sq).first()
+    inst = MarketInstrument.objects.filter(symbol__iexact=sq_clean).first()
     if inst:
         return inst
 
     # 1b. Cek normalisasi OTC (contoh: EURUSD_OTC -> EURUSD-OTC)
-    if '_' in sq and 'otc' in sq.lower():
-        inst = MarketInstrument.objects.filter(symbol__iexact=sq.replace('_', '-')).first()
+    if '_' in sq_clean and 'otc' in sq_clean.lower():
+        inst = MarketInstrument.objects.filter(symbol__iexact=sq_clean.replace('_', '-')).first()
         if inst:
             return inst
 
     # 2. Cek tambahan sufiks Forex '=X' (contoh: EURUSD -> EURUSD=X)
-    inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq}=X").first()
+    inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq_clean}=X").first()
     if inst:
         return inst
 
     # 3. Cek tambahan sufiks Kripto '-USD' (contoh: BTC -> BTC-USD)
-    inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq}-USD").first()
+    inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq_clean}-USD").first()
     if inst:
         return inst
 
     # 3b. Cek kripto dengan sufiks USD tanpa strip (contoh: BTCUSD -> BTC-USD)
-    if sq.upper().endswith('USD') and len(sq) > 3:
-        base = sq[:-3].upper()
+    if sq_clean.upper().endswith('USD') and len(sq_clean) > 3:
+        base = sq_clean[:-3].upper()
         inst = MarketInstrument.objects.filter(symbol__iexact=f"{base}-USD").first()
         if inst:
             return inst
 
     # 3c. Cek komoditas populer (contoh: XAUUSD / GOLD -> GC=F, XAGUSD / SILVER -> SI=F)
     comm_map = {'XAUUSD': 'GC=F', 'GOLD': 'GC=F', 'XAGUSD': 'SI=F', 'SILVER': 'SI=F'}
-    if sq.upper() in comm_map:
-        inst = MarketInstrument.objects.filter(symbol__iexact=comm_map[sq.upper()]).first()
+    if sq_clean.upper() in comm_map:
+        inst = MarketInstrument.objects.filter(symbol__iexact=comm_map[sq_clean.upper()]).first()
         if inst:
             return inst
 
-    # 4. Cek tambahan sufiks Saham IDX '.JK' (contoh: BBCA -> BBCA.JK)
-    inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq}.JK").first()
+    # 4. Cek tambahan sufiks Saham IDX '.JK' (contoh: BBCA -> BBCA.JK, MGLV -> MGLV.JK)
+    inst = MarketInstrument.objects.filter(symbol__iexact=f"{sq_clean}.JK").first()
     if inst:
         return inst
 
     # 5. Cek jika query berupa ID numerik
-    if sq.isdigit():
-        inst = MarketInstrument.objects.filter(id=int(sq)).first()
+    if sq_clean.isdigit():
+        inst = MarketInstrument.objects.filter(id=int(sq_clean)).first()
         if inst:
             return inst
 
     # 6. Cek kecocokan parsial pada simbol
-    inst = MarketInstrument.objects.filter(symbol__icontains=sq).first()
+    inst = MarketInstrument.objects.filter(symbol__icontains=sq_clean).first()
     if inst:
         return inst
 
-    # 7. Cek kecocokan parsial pada nama aset (contoh: 'Euro', 'Bitcoin', 'Gold')
-    inst = MarketInstrument.objects.filter(name__icontains=sq).first()
+    # 7. Cek kecocokan parsial langsung pada nama aset (contoh: 'Euro', 'Bitcoin', 'Gold')
+    inst = MarketInstrument.objects.filter(name__icontains=sq_clean).first()
     if inst:
         return inst
+
+    # 8. Normalisasi cerdas nama emiten saham Indonesia:
+    # Menghapus prefix PT / Perseroan Terbatas, (Persero), dan akhiran Tbk, Tbk., Tb, T
+    name_clean = re.sub(r'^(pt\b\.?|perseroan terbatas)\s*', '', sq, flags=re.IGNORECASE).strip()
+    name_clean = re.sub(r'\(persero\)', '', name_clean, flags=re.IGNORECASE).strip()
+    name_clean = re.sub(r'\s*\b(tbk|tb|t)\b\.?$', '', name_clean, flags=re.IGNORECASE).strip().strip('.')
+
+    if name_clean and len(name_clean) >= 2:
+        inst = MarketInstrument.objects.filter(name__icontains=name_clean).first()
+        if inst:
+            return inst
+
+        # Jika nama panjang, cocokkan menggunakan 2 kata awal (contoh: 'Sumber Tani' untuk 'Sumber Tani Agung Resources Tb')
+        words = name_clean.split()
+        if len(words) > 1:
+            two_words = ' '.join(words[:2])
+            inst = MarketInstrument.objects.filter(name__icontains=two_words).first()
+            if inst:
+                return inst
 
     return None
 
@@ -277,7 +315,18 @@ def main_dashboard(request):
     if tf not in VALID_TIMEFRAMES:
         tf = '1d'
 
-    symbol_query = request.GET.get('symbol', '').strip()
+    # Tangani potensi parameter symbol ganda dari input pencarian teks + dropdown pemilih pasar
+    symbol_params = [s.strip() for s in request.GET.getlist('symbol') if s.strip()]
+    symbol_query = ''
+    for sq in symbol_params:
+        if sq.lower() not in ['all', 'semua']:
+            symbol_query = sq
+            break
+    if not symbol_query and symbol_params:
+        symbol_query = symbol_params[-1]
+    if not symbol_query:
+        symbol_query = request.GET.get('select_symbol', '').strip()
+
     category_filter = request.GET.get('category', '').strip().upper()
     selected_inst = resolve_instrument(symbol_query) if symbol_query else None
     search_error = None
@@ -375,6 +424,10 @@ def main_dashboard(request):
             instruments_qs = MarketInstrument.objects.filter(is_active=True)
             if category_filter in ['FOREX', 'CRYPTO', 'STOCK', 'COMMODITY']:
                 instruments_qs = instruments_qs.filter(market_category=category_filter)
+
+            # Optimasi kinerja: hanya proses instrumen yang memiliki data lilin di basis data
+            instruments_with_data = MarketData.objects.filter(timeframe=tf).values_list('instrument_id', flat=True).distinct()
+            instruments_qs = instruments_qs.filter(id__in=instruments_with_data)
 
             dashboard_data = []
             for inst in instruments_qs:
@@ -599,6 +652,10 @@ def export_csv(request):
     if category_filter not in valid_categories:
         category_filter = ''
 
+    valid_sources = dict(MarketInstrument.SOURCE_CHOICES)
+    requested_source = request.GET.get('source', '').strip().upper()
+    export_source = requested_source if requested_source in valid_sources else None
+
     if selected_inst:
         instruments = [selected_inst]
         filename = f"analisa_{selected_inst.symbol}_{tf}.csv"
@@ -609,6 +666,10 @@ def export_csv(request):
             filename = f"analisa_pasar_{category_filter}_{tf}.csv"
         else:
             filename = f"analisa_pasar_{tf}.csv"
+
+        # Optimasi: hanya ekspor instrumen yang memiliki data
+        instruments_with_data = MarketData.objects.filter(timeframe=tf).values_list('instrument_id', flat=True).distinct()
+        instruments = instruments.filter(id__in=instruments_with_data)
 
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -623,7 +684,7 @@ def export_csv(request):
 
     for inst in instruments:
         result = typed_analyze_instrument_optimized(
-            inst.id, timeframe=tf, data_source=inst.data_source
+            inst.id, timeframe=tf, data_source=export_source or inst.data_source
         )
         if result:
             writer.writerow([
@@ -685,3 +746,70 @@ def chart_data_api(request):
         'timeframe': tf,
         'chart_data': prediction_data.get('chart_data', {})
     })
+
+
+def search_instruments_api(request):
+    """
+    API endpoint untuk pencarian instrumen pasar dan Saham IDX secara dinamis.
+    Mendukung pencarian instan berdasarkan simbol, nama emiten, atau kategori.
+    """
+    import hashlib
+
+    q = request.GET.get('q', '').strip()
+    if not q or len(q) < 1:
+        return JsonResponse({'results': []})
+
+    try:
+        limit = min(max(int(request.GET.get('limit', 15)), 1), 50)
+    except (ValueError, TypeError):
+        limit = 15
+    category = request.GET.get('category', '').strip().upper()
+
+    q_hash = hashlib.md5(f"{q.lower()}_{category}_{limit}".encode('utf-8')).hexdigest()
+    cache_key = f"inst_search_{q_hash}"
+    try:
+        cached_results = cache.get(cache_key)
+        if cached_results is not None:
+            return JsonResponse({'results': cached_results})
+    except Exception as e:
+        logger.debug(f"Pemeriksaan cache pencarian instrumen dilewati: {e}")
+
+    qs = MarketInstrument.objects.filter(is_active=True)
+    if category in ['FOREX', 'CRYPTO', 'STOCK', 'COMMODITY']:
+        qs = qs.filter(market_category=category)
+
+    # 1. Simbol yang dimulai dengan query atau sama persis
+    exact_or_prefix = list(qs.filter(symbol__istartswith=q)[:limit])
+    results_ids = {inst.id for inst in exact_or_prefix}
+
+    # 2. Pencarian berdasarkan nama emiten
+    name_matches = []
+    if len(exact_or_prefix) < limit:
+        name_clean = re.sub(r'^(pt\b\.?|perseroan terbatas)\s*', '', q, flags=re.IGNORECASE).strip()
+        name_clean = re.sub(r'\(persero\)', '', name_clean, flags=re.IGNORECASE).strip()
+        name_clean = re.sub(r'\s*\b(tbk|tb|t)\b\.?$', '', name_clean, flags=re.IGNORECASE).strip().strip('.')
+        search_term = name_clean if len(name_clean) >= 2 else q
+
+        name_qs = qs.exclude(id__in=results_ids).filter(name__icontains=search_term)
+        name_matches = list(name_qs[:limit - len(exact_or_prefix)])
+
+    combined = exact_or_prefix + name_matches
+    results = [
+        {
+            'id': inst.id,
+            'symbol': inst.symbol,
+            'clean_symbol': inst.symbol.replace('.JK', '').replace('=X', ''),
+            'name': inst.name,
+            'category': inst.get_market_category_display(),
+            'market_category': inst.market_category,
+            'display_text': f"{inst.symbol} - {inst.name}"
+        }
+        for inst in combined
+    ]
+
+    try:
+        cache.set(cache_key, results, timeout=120)
+    except Exception as e:
+        logger.debug(f"Penyimpanan cache pencarian instrumen dilewati: {e}")
+
+    return JsonResponse({'results': results})

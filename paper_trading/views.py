@@ -252,6 +252,8 @@ def account_status_api(request):
 
     stats = account.get_stats()
 
+    total_used_margin = sum(t['amount'] for t in open_trades_data)
+
     return JsonResponse({
         'success': True,
         'account': {
@@ -260,7 +262,7 @@ def account_status_api(request):
             'currency': account.currency,
             'initial_balance': account.initial_balance,
             'balance': round(account.balance, 2),
-            'equity': round(account.balance + total_floating, 2),
+            'equity': round(account.balance + total_used_margin + total_floating, 2),
             'total_floating_pnl': round(total_floating, 2),
             'open_positions_count': len(open_trades_data),
         },

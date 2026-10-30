@@ -8,6 +8,7 @@ from data_ingestion.models import MarketData, MarketInstrument
 from technical_indicators.services import (
     calculate_prediction_score,
     get_higher_timeframe_bias,
+    _compute_technical_indicators,
 )
 from trading_dashboard.views import resolve_instrument
 
@@ -99,7 +100,7 @@ class Command(BaseCommand):
             return
 
         records = list(
-            qs.values(
+            qs.order_by('-timestamp').values(
                 'timestamp',
                 'open_price',
                 'high_price',
@@ -110,39 +111,12 @@ class Command(BaseCommand):
         )
 
         df = pd.DataFrame.from_records(records)
+        df.drop_duplicates(subset=['timestamp'], keep='last', inplace=True)
         df.sort_values('timestamp', ascending=True, inplace=True)
         df.set_index('timestamp', inplace=True)
 
-        # Indikator Dasar
-        df['SMA_5'] = ta.sma(df['close_price'], length=5)
-        df['SMA_20'] = ta.sma(df['close_price'], length=min(20, len(df)))
-        df['EMA_9'] = ta.ema(df['close_price'], length=9)
-        df['EMA_21'] = ta.ema(df['close_price'], length=min(21, len(df)))
-        df['RSI_14'] = ta.rsi(df['close_price'], length=14)
-        df['ATR_14'] = ta.atr(
-            df['high_price'],
-            df['low_price'],
-            df['close_price'],
-            length=min(14, len(df)),
-        )
-
-        stoch = ta.stochrsi(
-            df['close_price'], length=14, rsi_length=14, k=3, d=3
-        )
-        if stoch is not None and not stoch.empty:
-            df['STOCH_K'] = stoch.iloc[:, 0]
-            df['STOCH_D'] = stoch.iloc[:, 1]
-        else:
-            df['STOCH_K'] = None
-            df['STOCH_D'] = None
-
-        macd = ta.macd(df['close_price'])
-        if macd is not None and not macd.empty:
-            df['MACD'] = macd.iloc[:, 0]
-            df['MACD_Hist'] = macd.iloc[:, 1]
-        else:
-            df['MACD'] = None
-            df['MACD_Hist'] = None
+        # Hitung Indikator Teknikal (Menggunakan Engine Produksi Berkecepatan Tinggi)
+        df = _compute_technical_indicators(df)
 
         # Inisialisasi Metrik Evaluasi
         total_eval = 0

@@ -11,3 +11,4 @@ ta
 websockets
 yfinance
 celery
+streamlit

@@ -217,5 +217,10 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
+        'yfinance': {
+            'handlers': ['console'],
+            'level': 'CRITICAL',
+            'propagate': False,
+        },
     },
 }

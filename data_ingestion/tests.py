@@ -202,3 +202,31 @@ class StreamCryptoRealtimeTestCase(TransactionTestCase):
         self.assertEqual(candle.open_price, 68050.0)
         self.assertIn('LILIN 1M SELESAI #1', out.getvalue())
 
+    def test_seed_instruments_contains_nexai_and_idx_stocks(self):
+        from data_ingestion.management.commands.seed_instruments import ALL_INSTRUMENTS
+        from trading_dashboard.views import resolve_instrument
+
+        # Cek ketersediaan NexAI Digital Infrastruktur Tbk (MGLV.JK)
+        mglv = next((item for item in ALL_INSTRUMENTS if item['symbol'] == 'MGLV.JK'), None)
+        self.assertIsNotNone(mglv)
+        self.assertIn('NexAI Digital Infrastruktur', mglv['name'])
+        self.assertEqual(mglv['market_category'], 'STOCK')
+
+        # Seeding instrumen MGLV ke DB
+        inst = MarketInstrument.objects.create(
+            symbol=mglv['symbol'],
+            name=mglv['name'],
+            market_category=mglv['market_category'],
+            is_active=True,
+        )
+
+        # Resolusi via kode MGLV tanpa .JK
+        resolved_by_code = resolve_instrument('MGLV')
+        self.assertIsNotNone(resolved_by_code)
+        self.assertEqual(resolved_by_code.symbol, 'MGLV.JK')
+
+        # Resolusi via nama perusahaan
+        resolved_by_name = resolve_instrument('NexAI')
+        self.assertIsNotNone(resolved_by_name)
+        self.assertEqual(resolved_by_name.symbol, 'MGLV.JK')
+

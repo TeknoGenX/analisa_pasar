@@ -218,3 +218,59 @@ class PaperTradingTestCase(TestCase):
         self.assertTrue(data['is_enabled'])
         self.assertEqual(data['trade_amount'], 250.0)
         self.assertEqual(data['min_probability'], 75)
+
+    def test_equity_includes_used_margin_when_trade_open(self):
+        last_c = self.instrument.price_data.order_by('-timestamp').first()
+        current_close = last_c.close_price
+
+        # Membuka order senilai 500 pada harga penutupan terakhir
+        trade = open_paper_trade(
+            account=self.account,
+            instrument=self.instrument,
+            order_type='BUY',
+            amount=500.0,
+            timeframe='1m',
+            entry_price=current_close,
+        )
+        # Saldo kas berkurang 500
+        self.assertEqual(self.account.balance, 9500.0)
+        # Ekuitas tidak boleh defisit 500; harus tetap 10000.0 saat floating PnL 0
+        self.assertEqual(self.account.equity, 10000.0)
+
+        # Verifikasi via API account status
+        response = self.client.get(reverse('paper_trading:account_status'))
+        self.assertEqual(response.status_code, 200)
+        acc_data = response.json()['account']
+        self.assertEqual(acc_data['balance'], 9500.0)
+        self.assertEqual(acc_data['equity'], 10000.0)
+
+    def test_evaluate_open_positions_ignores_past_candles(self):
+        # Buat candle di masa lalu dengan high sangat tinggi (1.2000)
+        past_time = timezone.now() - timedelta(minutes=5)
+        MarketData.objects.create(
+            instrument=self.instrument,
+            timeframe='1m',
+            timestamp=past_time,
+            open_price=1.1000,
+            high_price=1.2000,
+            low_price=1.0900,
+            close_price=1.1005,
+            volume=50.0
+        )
+
+        # Buka order sekarang dengan TP 1.1500 (di bawah high lilin masa lalu 1.2000)
+        trade = open_paper_trade(
+            account=self.account,
+            instrument=self.instrument,
+            order_type='BUY',
+            amount=100.0,
+            entry_price=1.1005,
+            take_profit=1.1500,
+            stop_loss=1.0800
+        )
+
+        # Evaluasi posisi tidak boleh menutup trade karena candle masa lalu mendahului entry_time
+        closed_count = evaluate_open_positions()
+        self.assertEqual(closed_count, 0)
+        trade.refresh_from_db()
+        self.assertEqual(trade.status, 'OPEN')
